@@ -6,7 +6,8 @@ import { Vec3 } from './sim.js';
 import { toThree } from './gym.js';
 
 export class Tube {
-	constructor(group, material, rings, around) {
+	// Open leaves the far end uncapped, for a sleeve or a shorts leg
+	constructor(group, material, rings, around, open = false) {
 		this.rings = rings;
 		this.around = around;
 		const count = rings * around + 2;
@@ -22,10 +23,12 @@ export class Tube {
 		const first = rings * around, last = first + 1;
 		for (let a = 0; a < around; a++) {
 			const b = (a + 1) % around;
-			index.push(first, b, a, last, (rings - 1) * around + a, (rings - 1) * around + b);
+			index.push(first, b, a);
+			if (!open) index.push(last, (rings - 1) * around + a, (rings - 1) * around + b);
 		}
 		geometry.setIndex(index);
 		this.mesh = new THREE.Mesh(geometry, material);
+		if (open) material.side = THREE.DoubleSide;
 		this.mesh.castShadow = true;
 		this.mesh.frustumCulled = false;
 		group.add(this.mesh);

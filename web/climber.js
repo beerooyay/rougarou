@@ -156,7 +156,7 @@ export class Climber {
 			const arm = l >= 2;
 			const root = this.ball(arm ? Tee : Shorts);
 			root.material = arm ? this.cloth.shirt : this.cloth.shorts;
-			return { root, limb: new Tube(this.group, skin, 22, 14), cover: new Tube(this.group, arm ? this.cloth.shirt : this.cloth.shorts, 6, 14),
+			return { root, limb: new Tube(this.group, skin, 22, 14), cover: new Tube(this.group, arm ? this.cloth.shirt : this.cloth.shorts, 8, 16, true), wrist: arm ? this.ball(Skin) : null,
 				palm: arm ? this.ball(Skin) : null, fingers: arm ? Array.from({ length: 5 }, () => new Tube(this.group, skin, 7, 8)) : [],
 				shoe: arm ? null : new Tube(this.group, this.cloth.shoes, 12, 14), sole: arm ? null : new Tube(this.group, sole, 12, 10) };
 		});
@@ -365,7 +365,7 @@ export class Climber {
 		const up = chest.sub(pelvis).norm();
 		const back = pose.back;
 		this.dressShirt(pose, pelvis, chest, up, back, delta);
-		this.orient(this.shorts, pelvis.add(up.mul(3)), hipL.sub(hipR), back, new Vec3(37, 27, 25));
+		this.orient(this.shorts, pelvis.add(up.mul(2)), hipL.sub(hipR), back, new Vec3(41, 30, 27));
 		const face = pose.look.sub(up.mul(pose.look.dot(up))).norm();
 		const side = face.cross(up).norm();
 		this.segment(this.neck, chest.add(up.mul(2)), pose.head.sub(up.mul(7)), 6.5);
@@ -392,23 +392,29 @@ export class Climber {
 			parts.limb.update(path, (t) => { const r = radius(t) * 2; return [r * (arm ? 1.08 : 1), r]; }, side);
 			// a short boxy sleeve, or the shorts leg, over the top of the limb
 			const reach = knee * (arm ? 0.5 : 0.46);
-			parts.cover.update((t) => path(t * reach), (t) => { const r = radius(t * reach) * 2 + (arm ? 3.8 : 4.4) + t * 1.2; return [r, r]; }, side);
+			// a roomy sleeve from the top of the shoulder, or a shorts leg from the waistband, ending in an open hem
+			const hem = path(knee * (arm ? 0.62 : 0.55));
+			const top = arm ? root.sub(up.mul(1)).add(chest.sub(root).mul(0.12)) : root.add(up.mul(9)).add(pelvis.sub(root).mul(0.35));
+			const cuff = radius(knee * (arm ? 0.62 : 0.55)) * 2;
+			parts.cover.update((t) => top.lerp(hem, t), (t) => { const r = arm ? lerp(15.5, cuff + 5.5, t) : lerp(26, cuff + 7.5, Math.sqrt(t)); return [r, r * (arm ? 1 : 0.95)]; }, side);
 			this.place(parts.root, root, arm ? 13 : 16);
 			if (arm) {
 				const h = limb.hand;
-				this.orient(parts.palm, h.palm, h.over, h.out, new Vec3(9.6, 8.6, 3.4));
+				this.orient(parts.palm, h.palm, h.over, h.out, new Vec3(10.4, 9, 3.6));
+				// the heel of the hand: a soft wedge from the wrist into the palm, so the hand grows out of the forearm
+				this.orient(parts.wrist, limb.end.add(h.over.mul(2.6)), h.over, h.out, new Vec3(8.5, 7, 4.4));
 				this.shapeFingers(parts.fingers, h.palm, h.over, h.out, h.thumb, h.grip);
 			} else {
 				// a downturned climbing shoe: rounded heel, wide at the ball of the foot, pointed toe; a black rubber sole and rand under it
 				const f = limb.foot;
 				const along = f.toe.sub(f.heel).norm();
 				const lateral = f.up.cross(along).norm();
-				const heel = f.heel.add(f.up.mul(4.5)).sub(along.mul(1.5));
-				const toe = f.toe.add(f.up.mul(1.8)).add(along.mul(1));
+				const heel = f.heel.add(f.up.mul(5)).sub(along.mul(4.5));
+				const toe = f.toe.add(f.up.mul(2)).add(along.mul(2.5));
 				const arch = heel.lerp(toe, 0.55).add(f.up.mul(1.2));
 				const shoe = bent(heel, arch, toe, 5);
-				const width = (t) => t < 0.75 ? lerp(7.2, 9.6, t / 0.75) : 9.6 * Math.sqrt(Math.max(0.04, (1 - t) / 0.25));
-				const height = (t) => (t < 0.6 ? lerp(10.5, 7.5, t / 0.6) : lerp(7.5, 4, (t - 0.6) / 0.4)) * (t > 0.9 ? Math.sqrt(Math.max(0.05, (1 - t) / 0.1)) : 1);
+				const width = (t) => t < 0.72 ? lerp(8.4, 10.8, t / 0.72) : 10.8 * Math.sqrt(Math.max(0.04, (1 - t) / 0.28));
+				const height = (t) => (t < 0.55 ? lerp(12, 8.5, t / 0.55) : lerp(8.5, 4.5, (t - 0.55) / 0.45)) * (t > 0.9 ? Math.sqrt(Math.max(0.05, (1 - t) / 0.1)) : 1);
 				parts.shoe.update(shoe, (t) => [width(t), height(t)], lateral);
 				parts.sole.update((t) => shoe(t).sub(f.up.mul(height(t) * 0.42)), (t) => [width(t) + 0.8, 2.2], lateral);
 			}

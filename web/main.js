@@ -669,7 +669,13 @@ $('eAdd').onclick = () => editor.add();
 $('eDel').onclick = () => editor.remove();
 $('eReset').onclick = () => editor.reset();
 $('eDone').onclick = finishEdit;
-canvas.addEventListener('wheel', (e) => { if (mode === 'edit') { e.preventDefault(); editor.turn(e.deltaY > 0 ? -10 : 10); } }, { passive: false });
+// the wheel turns a hold while setting, and otherwise pulls the camera in or out (saved with the settings)
+canvas.addEventListener('wheel', (e) => {
+	e.preventDefault();
+	if (mode === 'edit') { editor.turn(e.deltaY > 0 ? -10 : 10); return; }
+	ui.settings.zoom = clamp(ui.settings.zoom * Math.exp(e.deltaY * 0.0012), 0.45, 2);
+	ui.save();
+}, { passive: false });
 for (const b of document.querySelectorAll('button')) b.addEventListener('click', () => audio.click());
 $('tip').textContent = touchy
 	? 'left thumb walks, right thumb looks. walk up to a problem and tap its two start holds to pull on.'
@@ -830,7 +836,7 @@ function update(real) {
 		// over the shoulder, pulled in rather than looking through a wall
 		const direction = new Vec3(Math.cos(camYaw) * Math.cos(camPitch), Math.sin(camYaw) * Math.cos(camPitch), Math.sin(camPitch));
 		target = walker.at.add(Z.mul(tall ? 160 : 145));
-		const reach = tall ? 400 : 330;
+		const reach = (tall ? 400 : 330) * ui.settings.zoom;
 		goal = target.sub(direction.mul(reach));
 		for (let d = 40; d <= reach; d += 15) {
 			const p = target.sub(direction.mul(d));
@@ -852,7 +858,7 @@ function update(real) {
 		// under a roof the panel faces the floor; keep the last good direction
 		if (out.len() > 0.3) behind = out.norm();
 		const lift = tall ? 45 : 0;
-		const back = face.stand * (tall ? 1.2 : 1) * (mode === 'climb' || mode === 'mount' ? 1 : 0.8);
+		const back = face.stand * (tall ? 1.2 : 1) * (mode === 'climb' || mode === 'mount' ? 1 : 0.8) * ui.settings.zoom;
 		goal = pelvis.add(behind.mul(back)).add(panel.right.mul(face.aside)).add(new Vec3(0, 0, 30 + lift));
 		target = pelvis.add(new Vec3(0, 0, 25 + lift));
 		speed = view.dist(goal) > 300 ? 1.6 : 4;
@@ -918,9 +924,9 @@ function update(real) {
 	const locked = document.pointerLockElement === canvas;
 	$('cross').hidden = !(locked && mode === 'walk');
 	$('keys').textContent = mode === 'edit' ? 'drag a hold · q e turn · t kind · delete removes · wheel turns · enter done'
-		: climbing ? 'wasd hips · esc put back · x hang · j jump down · r retry · m menu · ` record'
+		: climbing ? 'wasd hips · esc put back · x hang · j jump down · r retry · wheel zoom · m menu · ` record'
 		: locked ? 'wasd walk · shift jog · mouse looks · click a start hold · e pull on · esc frees the mouse'
-		: 'wasd walk · shift jog · click to look around · e pull on · [ ] next · m menu · ` record';
+		: 'wasd walk · shift jog · click to look around · wheel zoom · e pull on · [ ] next · m menu · ` record';
 	if (mode === 'mount' && !$('tip').classList.contains('gone') && $('tip').textContent !== climbTip) $('tip').textContent = climbTip;
 	renderer.render(scene, camera);
 }
@@ -930,6 +936,6 @@ else { walker.near = -1; pose = walkerPose(); }
 $('loading').remove();
 requestAnimationFrame(frame);
 // a handle for poking at the game from the console
-window.rougarou = { sim, routes, get spots() { return spots; }, walker, world, ui, editor, recorder, audio, screenOf, place, lift, pullOn, jumpDown, visit, retry, goTo, editRoute, finishEdit, get mode() { return mode; }, get pose() { return pose; }, view: () => ({ camYaw, camPitch }),
+window.rougarou = { sim, routes, get spots() { return spots; }, walker, world, ui, editor, recorder, audio, screenOf, place, lift, pullOn, jumpDown, visit, retry, goTo, editRoute, finishEdit, get mode() { return mode; }, get pose() { return pose; }, view: () => ({ camYaw, camPitch }), aim: (yaw, pitch) => { camYaw = yaw; camPitch = pitch; },
 	// run the game forward without waiting on the browser's frame clock
 	tick: (seconds) => { for (let t = 0; t < seconds; t += 1 / 60) update(1 / 60); } };

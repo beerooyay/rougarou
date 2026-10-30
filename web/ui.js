@@ -8,7 +8,7 @@ export const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStar
 const hex = (c) => `#${c.map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`;
 const gradeOf = (route) => parseInt(String(route.grade).replace(/\D/g, ''), 10) || 0;
 
-export const Defaults = { shirt: '#e6dfcc', shorts: '#3f4a2c', shoes: '#e9b812', volume: 0.8, muted: false, look: 1, quality: 'auto', gauges: true };
+export const Defaults = { shirt: '#e6dfcc', shorts: '#3f4a2c', shoes: '#e9b812', volume: 0.8, muted: false, look: 1, zoom: 1, quality: 'auto', gauges: true };
 const Swatches = {
 	shirt: ['#e6dfcc', '#f4f1ea', '#1d1d20', '#c8553d', '#2f5d8a', '#6b8f71', '#e8b4b8'],
 	shorts: ['#3f4a2c', '#1d1d20', '#2b3a55', '#7a5c3e', '#8a8f96', '#a33b2b'],
@@ -128,13 +128,15 @@ export class UI {
 
 	form() {
 		const s = this.settings;
+		const touch = matchMedia('(pointer: coarse)').matches;
 		const swatch = (part) => `<div class="swatches">${Swatches[part].map(c => `<button data-part="${part}" data-c="${c}" style="--c:${c}" class="${c === s[part] ? 'on' : ''}" aria-label="${c}"></button>`).join('')}
 			<input type="color" data-part="${part}" value="${s[part]}" aria-label="custom ${part} color"></div>`;
 		const toggle = (key, options) => `<span class="toggle">${options.map(([v, label]) => `<button data-key="${key}" data-v="${v}" class="${String(s[key]) === String(v) ? 'on' : ''}">${label}</button>`).join('')}</span>`;
 		$('settings').innerHTML = `
 			<div><h3>outfit</h3><div class="outfit"><span>shirt</span>${swatch('shirt')}<span>shorts</span>${swatch('shorts')}<span>shoes</span>${swatch('shoes')}</div></div>
 			<div><h3>sound</h3><div class="field"><label>volume</label><input type="range" min="0" max="1" step="0.05" value="${s.volume}" data-range="volume">${toggle('muted', [[false, 'on'], [true, 'off']])}</div></div>
-			<div><h3>controls</h3><div class="field"><label>look speed</label><input type="range" min="0.3" max="2.5" step="0.1" value="${s.look}" data-range="look"></div></div>
+			<div><h3>camera</h3><div class="field"><label>look speed</label><input type="range" min="0.3" max="2.5" step="0.1" value="${s.look}" data-range="look"></div>
+				<div class="field"><label>distance</label><input type="range" min="0.45" max="2" step="0.05" value="${s.zoom}" data-range="zoom"><small>closer · further${touch ? '' : ' (or the mouse wheel)'}</small></div></div>
 			<div><h3>display</h3>
 				<div class="field"><label>graphics</label>${toggle('quality', [['auto', 'auto'], ['high', 'high'], ['low', 'fast']])}</div>
 				<div class="field"><label>pump and weight</label>${toggle('gauges', [[true, 'show'], [false, 'hide']])}</div></div>
