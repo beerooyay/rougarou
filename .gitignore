@@ -1,0 +1,13 @@
+.DS_Store
+*.log
+builds/
+godot/.godot/
+unity/Library/
+unity/Logs/
+unity/Temp/
+unity/UserSettings/
+unity/obj/
+.claude/
+# the scanned character rig stays local: it is a personal likeness and a mixamo asset
+unity/Assets/Resources/blaize.fbx
+unity/Assets/Resources/blaize.fbx.meta

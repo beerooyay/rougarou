@@ -1,0 +1,31 @@
+{
+  "decision": "unreal",
+  "basis": "2026-10-30: blaize chose unreal 5.8 for metahuman (realistic likeness with a face rig), control rig full-body ik, and fab environment packs; unity stays the gameplay spec the way the rawah browser game specs the godot port",
+  "engines": {
+    "godot": "4.7.2 stable / jolt / mobile renderer",
+    "unity": "6000.3.27f1 / physx / urp",
+    "unreal": "5.8 / c++ climbing sim ported from unity / control rig + full body ik planned"
+  },
+  "platform": "mac / apple m4 max",
+  "passed": [
+    "both prototypes load the same authored hold and physics data",
+    "initial four-contact hangs remain stable on all three routes",
+    "reachable holds attach and distant holds do not",
+    "first reaches stay attached on all three routes",
+    "release and fall restore the starting stance",
+    "scripted vertical, overhang, and traverse sequences all reach the final hold",
+    "unity mac standalone launches without a startup exception"
+  ],
+  "limitations": [
+    "the climber is a constrained rigid torso and procedural proxy limbs, not a full active ragdoll or anatomical ik",
+    "the first-person camera is an inspection prototype, not polished body-aware animation",
+    "touch, console, pc build, character animation, audio, and gym progression were not tested",
+    "desktop frame pacing and tablet thermals have not been measured in a medium-poly gym",
+    "no real-climber validation of grip and movement rules has happened yet"
+  ],
+  "next": "build unreal/ once 5.8 finishes installing, pass Rougarou.ClimbSim, then mesh to metahuman on the blaize scan driven by the sim through control rig",
+  "previous_decision": {
+    "decision": "unity",
+    "basis": "blaize chose unity after viewing both playable windows and described it as much cleaner; no claim that its physics benchmarked faster"
+  }
+}
