@@ -141,6 +141,13 @@ export class Sink {
 		const m = toThree(n.mul(100));
 		for (let i = 0; i < 3; i++) this.normals.push(...m);
 	}
+	// a triangle shaded smoothly from its corners' normals, for the rounded resin of a hold
+	smooth(a, b, c, na, nb, nc, facing) {
+		const n = c.sub(a).cross(b.sub(a));
+		if (n.dot(facing) < 0) { [b, c] = [c, b]; [nb, nc] = [nc, nb]; }
+		for (const p of [a, b, c]) this.positions.push(...toThree(p));
+		for (const m of [na, nb, nc]) this.normals.push(...toThree(m.mul(100)));
+	}
 }
 
 const Templates = [
@@ -170,8 +177,8 @@ function pickTemplate(kind, seed) {
 
 const holdSize = (kind) => ({ jug: 22, crimp: 18, sloper: 28, pinch: 20, pocket: 18, volume: 55 }[kind] ?? 16);
 
-// a once-subdivided icosahedron: 80 faces, enough for a faceted hand-shaped hold
-const Ico = (() => {
+// a subdivided icosahedron: 80 faces for the gym's scattered holds, 320 for the problems' own, smooth-shaded either way
+const icosphere = (levels) => {
 	const t = (1 + Math.sqrt(5)) / 2;
 	const points = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(p => V(...p).norm());
 	const base = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
@@ -184,13 +191,18 @@ const Ico = (() => {
 		middles.set(key, points.length - 1);
 		return points.length - 1;
 	};
-	const faces = [];
-	for (const [x, y, z] of base) {
-		const ab = middle(x, y), bc = middle(y, z), ca = middle(z, x);
-		faces.push([x, ab, ca], [y, bc, ab], [z, ca, bc], [ab, bc, ca]);
+	let faces = base;
+	for (let level = 0; level < levels; level++) {
+		const next = [];
+		for (const [x, y, z] of faces) {
+			const ab = middle(x, y), bc = middle(y, z), ca = middle(z, x);
+			next.push([x, ab, ca], [y, bc, ab], [z, ca, bc], [ab, bc, ca]);
+		}
+		faces = next;
 	}
 	return { points, faces };
-})();
+};
+const Icos = [icosphere(1), icosphere(2)];
 
 // hold space onto a surface: z along the face normal, x toward Up as far as the face allows
 function holdFrame(spot, normal, up) {
@@ -205,7 +217,8 @@ function holdFrame(spot, normal, up) {
 }
 
 // bake one hold into the sinks. Size is the nominal size in centimeters
-function buildHold(index, size, where, seed, body, dark) {
+function buildHold(index, size, where, seed, body, dark, fine = false) {
+	const Ico = Icos[fine ? 1 : 0];
 	const hold = Templates[index];
 	const scale = hold.scale.mul(size / 2);
 	const dice = new Dice(seed);
@@ -250,10 +263,23 @@ function buildHold(index, size, where, seed, body, dark) {
 		return place(V(l.x * scale.x, l.y * scale.y, l.z * scale.z));
 	});
 	const center = place(V(0, 0, scale.z * 0.3));
-	for (const [a, b, c] of Ico.faces) {
-		if (Ico.points[a].z < 0 && Ico.points[b].z < 0 && Ico.points[c].z < 0) continue;
+	const kept = Ico.faces.filter(([a, b, c]) => !(Ico.points[a].z < 0 && Ico.points[b].z < 0 && Ico.points[c].z < 0));
+	// corner normals averaged from the faces around them, each face turned to point away from the hold's middle
+	const normals = points.map(() => V(0, 0, 0));
+	for (const [a, b, c] of kept) {
+		let n = points[c].sub(points[a]).cross(points[b].sub(points[a]));
+		if (n.dot(points[a].add(points[b]).add(points[c]).mul(1 / 3).sub(center)) < 0) n = n.mul(-1);
+		for (const i of [a, b, c]) normals[i] = normals[i].add(n);
+	}
+	for (const [a, b, c] of kept) {
 		const mid = points[a].add(points[b]).add(points[c]).mul(1 / 3);
-		body.add(points[a], points[b], points[c], mid.sub(center));
+		body.smooth(points[a], points[b], points[c], normals[a].norm(), normals[b].norm(), normals[c].norm(), mid.sub(center));
+	}
+	// the bolt: a dark washer sunk in the top of the hold
+	const top = place(V(0, 0, scale.z * (1 + hold.noise * 0.5) + 0.2));
+	for (let s = 0; s < 8; s++) {
+		const a0 = 2 * Math.PI * s / 8, a1 = 2 * Math.PI * (s + 1) / 8;
+		dark.add(top, place(V(Math.cos(a0) * 1.3, Math.sin(a0) * 1.3, scale.z * (1 + hold.noise * 0.5) + 0.2)), place(V(Math.cos(a1) * 1.3, Math.sin(a1) * 1.3, scale.z * (1 + hold.noise * 0.5) + 0.2)), out);
 	}
 	if (hold.shape === 'pocket') {
 		const bottom = place(V(0, 0, scale.z * 0.2));
@@ -282,6 +308,27 @@ export function buildGym(routes) {
 		return i;
 	};
 	const block = (center, size, color, shadows = true) => blocks.push({ center, size, color, shadows });
+	// the t-nut grid: a bolt hole every 20 centimeters across every climbable face, on a lattice shared by coplanar facets
+	const holes = [];
+	const drill = (a, b, c, normal) => {
+		let u = V(0, 0, 1).cross(normal);
+		if (u.len() < 0.2) u = V(1, 0, 0).cross(normal);
+		u = u.norm();
+		const v = normal.cross(u).norm();
+		const st = [a, b, c].map(p => [p.dot(u), p.dot(v)]);
+		const lift = normal.mul(a.dot(normal) + 0.25);
+		const area = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (r[0] - p[0]) * (q[1] - p[1]);
+		const whole = area(...st);
+		if (Math.abs(whole) < 1) return;
+		const lo = [Math.min(...st.map(x => x[0])), Math.min(...st.map(x => x[1]))], hi = [Math.max(...st.map(x => x[0])), Math.max(...st.map(x => x[1]))];
+		for (let x = Math.ceil(lo[0] / 20) * 20; x < hi[0]; x += 20)
+			for (let y = Math.ceil(lo[1] / 20) * 20; y < hi[1]; y += 20) {
+				const p = [x, y];
+				const w0 = area(st[1], st[2], p) / whole, w1 = area(st[2], st[0], p) / whole, w2 = 1 - w0 - w1;
+				if (w0 < 0.02 || w1 < 0.02 || w2 < 0.02) continue;
+				holes.push({ at: lift.add(u.mul(x)).add(v.mul(y)), normal });
+			}
+	};
 
 	const decor = [[0.75, 0.03, 0.03], [0.95, 0.62, 0.02], [0.02, 0.18, 0.75], [0.04, 0.36, 0.14], [0.32, 0.1, 0.55], [0.22, 0.24, 0.27], [0.9, 0.3, 0.03], [0.75, 0.75, 0.72]];
 	const sprinkle = (a, b, c, normal, crowd) => {
@@ -329,10 +376,12 @@ export function buildGym(routes) {
 					const board = boards[dice.frand() < darkness ? 1 : 0];
 					board.add(tri[0], tri[1], tri[2], normal);
 					board.add(tri[0], tri[1], tri[2], normal.mul(-1));
-					if (clear) continue;
 					const middle = tri[0].add(tri[1]).add(tri[2]).mul(1 / 3);
-					for (const side of [normal, normal.mul(-1)])
-						if (show(middle, side)) sprinkle(tri[0], tri[1], tri[2], side, crowd);
+					for (const side of [normal, normal.mul(-1)]) {
+						if (!show(middle, side)) continue;
+						drill(tri[0], tri[1], tri[2], side);
+						if (!clear) sprinkle(tri[0], tri[1], tri[2], side, crowd);
+					}
 				}
 			}
 	};
@@ -443,11 +492,11 @@ export function buildGym(routes) {
 		problem.holds.forEach((spot, h) => {
 			const face = problem.at(spot.point.y);
 			const up = face.right.mul(-spot.pull.x).add(face.up.mul(-spot.pull.y));
-			buildHold(pickTemplate(spot.kind, index * 31 + h), holdSize(spot.kind), holdFrame(problem.map(spot.point), face.out, up), index * 977 + h, paint[color], shadow);
+			buildHold(pickTemplate(spot.kind, index * 31 + h), holdSize(spot.kind), holdFrame(problem.map(spot.point), face.out, up), index * 977 + h, paint[color], shadow, true);
 		});
 	});
 
-	return { boards, palette, paint, shadow, blocks, lights };
+	return { boards, palette, paint, shadow, blocks, lights, holes };
 }
 
 // unreal's RotateAngleAxis: Vector turned Degrees about Axis

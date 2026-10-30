@@ -54,20 +54,32 @@ fill.position.copy(three(new Vec3(420, -150, 260)));
 scene.add(fill);
 
 const gym = buildGym(routes);
-const soup = (sink, color) => {
+const soup = (sink, color, roughness = 0.82) => {
 	const geometry = new THREE.BufferGeometry();
 	geometry.setAttribute('position', new THREE.Float32BufferAttribute(sink.positions, 3));
 	geometry.setAttribute('normal', new THREE.Float32BufferAttribute(sink.normals, 3));
-	const material = new THREE.MeshStandardMaterial({ roughness: 0.82, metalness: 0 });
+	const material = new THREE.MeshStandardMaterial({ roughness, metalness: 0 });
 	material.color.setRGB(...color);
 	const mesh = new THREE.Mesh(geometry, material);
 	mesh.receiveShadow = true;
 	scene.add(mesh);
 	return mesh;
 };
-soup(gym.boards[0], [0.75, 0.55, 0.33]);
-soup(gym.boards[1], [0.03, 0.03, 0.035]);
-gym.paint.forEach((sink, i) => { soup(sink, gym.palette[i]).castShadow = true; });
+// pale birch plywood and charcoal panels, holds in satin resin
+soup(gym.boards[0], [0.84, 0.68, 0.47]);
+soup(gym.boards[1], [0.055, 0.055, 0.06], 0.9);
+gym.paint.forEach((sink, i) => { soup(sink, gym.palette[i], 0.5).castShadow = true; });
+// the bolt holes, one instanced batch
+{
+	const hole = new THREE.CylinderGeometry(0.0075, 0.0075, 0.002, 7);
+	const mesh = new THREE.InstancedMesh(hole, new THREE.MeshBasicMaterial({ color: 0x14110d }), gym.holes.length);
+	const m = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+	gym.holes.forEach((h, i) => {
+		q.setFromUnitVectors(up, three(h.normal.mul(100)).normalize());
+		mesh.setMatrixAt(i, m.compose(three(h.at), q, one));
+	});
+	scene.add(mesh);
+}
 soup(gym.shadow, [0.01, 0.01, 0.01]);
 // the blockout: one instanced box batch per color
 {
@@ -275,6 +287,7 @@ function runStages(delta) {
 }
 
 function mount() {
+	if (document.pointerLockElement) document.exitPointerLock();
 	sim.route = walker.near;
 	sim.restart();
 	climber.reset();
@@ -365,8 +378,14 @@ canvas.addEventListener('pointerdown', (e) => {
 	canvas.setPointerCapture(e.pointerId);
 	Object.assign(pointer, { x: e.clientX, y: e.clientY, inside: true, touch: e.pointerType !== 'mouse' });
 	$('tip').classList.add('gone');
+	if (mode === 'walk' && e.pointerType === 'mouse') {
+		// a mouse takes over the camera like any third-person game: click to look around freely, esc to get the cursor back.
+		// while it is held, a click grabs whatever start hold the crosshair is on
+		if (document.pointerLockElement === canvas) { tryGrab(innerWidth / 2, innerHeight / 2); return; }
+		canvas.requestPointerLock?.()?.catch?.(() => {});
+	}
 	if (mode === 'walk') {
-		// on a phone the left thumb walks and the right thumb looks; a mouse drags to look
+		// on a phone the left thumb walks and the right thumb looks; a mouse can also drag to look
 		if (e.pointerType !== 'mouse' && e.clientX < innerWidth * 0.45 && !stick) {
 			stick = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
 			Object.assign($('stick').style, { left: `${e.clientX}px`, top: `${e.clientY}px` });
@@ -387,6 +406,11 @@ canvas.addEventListener('pointerdown', (e) => {
 	joystick = { x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
 });
 canvas.addEventListener('pointermove', (e) => {
+	if (document.pointerLockElement === canvas) {
+		camYaw += e.movementX * 0.0025;
+		camPitch = clamp(camPitch - e.movementY * 0.002, -0.85, 0.3);
+		return;
+	}
 	Object.assign(pointer, { x: e.clientX, y: e.clientY, inside: true, touch: e.pointerType !== 'mouse' });
 	if (stick && e.pointerId === stick.id) {
 		stick.dx = e.clientX - stick.x;
@@ -451,7 +475,7 @@ $('again').onclick = retry;
 $('onward').onclick = jumpDown;
 $('tip').textContent = touchy
 	? 'left thumb walks, right thumb looks. walk up to a problem and tap its two start holds to pull on.'
-	: 'wasd to walk, drag to look around. walk up to a problem and click its two start holds to pull on.';
+	: 'wasd to walk, click to look around with the mouse. walk up to a problem and click its two start holds to pull on.';
 const climbTip = touchy
 	? 'drag a hand or foot onto a hold. drag empty wall to shift your hips. bare wall is for balance, not pulling.'
 	: 'click a hand or foot, move the mouse, click to place it. drag empty wall or use wasd to shift your hips.';
@@ -649,9 +673,12 @@ function update(real) {
 	show('drop', mode === 'climb' && limb < 0);
 	show('retry', mode === 'climb' || mode === 'fall');
 	show('pull', mode === 'walk' && !!near);
+	const locked = document.pointerLockElement === canvas;
+	$('cross').hidden = !(locked && mode === 'walk');
 	$('keys').textContent = climbing
 		? 'wasd hips · esc put back · x hang · j jump down · r retry · g gym'
-		: 'wasd walk · shift jog · drag to look · e pull on · [ ] next problem · g gym';
+		: locked ? 'wasd walk · shift jog · mouse looks · click a start hold · e pull on · esc frees the mouse'
+		: 'wasd walk · shift jog · click to look around · e pull on · [ ] next problem · g gym';
 	if (mode === 'mount' && !$('tip').classList.contains('gone') && $('tip').textContent !== climbTip) $('tip').textContent = climbTip;
 	if (sim.won && $('sent').hidden && mode === 'climb') $('sent').hidden = false;
 	renderer.render(scene, camera);

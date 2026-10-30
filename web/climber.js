@@ -8,7 +8,9 @@ import { Vec2, Vec3 } from './sim.js';
 import { toThree } from './gym.js';
 
 const Gap = 30;
-const Skin = 0xc78c6b, Tee = 0xe0d9c2, Shorts = 0x3d4a2b, Shoe = 0xe6b814, Hair = 0x2b1d15;
+const Skin = 0xc98e6d, Tee = 0xe6dfcc, Shorts = 0x3f4a2c, Shoe = 0xe9b812, Sole = 0x161616, Hair = 0x4a3324, Beard = 0x8a5634;
+// points around each ring of the tee
+const Around = 20;
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new Vec3(0, 0, 1);
 const three = (v) => new THREE.Vector3(...toThree(v));
@@ -32,8 +34,10 @@ export function handOn(frame, contact, over, side, grip, shake = 0) {
 export function solve(pose) {
 	pose.limbs.forEach((limb, index) => {
 		if (limb.bend) return;
-		const root = pose.roots[index], length = Bones[index];
+		const root = pose.roots[index];
 		const toward = limb.end.sub(root);
+		// a limb asked past its length stretches a little rather than coming apart from the hand or foot
+		const length = Math.max(Bones[index], toward.len() / 2 + 0.5);
 		const reach = Math.min(toward.len(), length * 2 - 0.1);
 		const direction = toward.norm();
 		const pole = limb.pole.sub(direction.mul(limb.pole.dot(direction))).norm();
@@ -97,12 +101,12 @@ export class Climber {
 	constructor(scene) {
 		this.group = new THREE.Group();
 		scene.add(this.group);
-		const rod = new THREE.CylinderGeometry(1, 1, 1, 12, 1);
+		const rod = new THREE.CylinderGeometry(1, 1, 1, 14, 1);
 		// limbs taper toward the hand or foot: the top of the cylinder lands on the far end of a segment
-		const taper = new THREE.CylinderGeometry(0.8, 1, 1, 12, 1);
-		const ball = new THREE.SphereGeometry(0.5, 18, 14);
+		const taper = new THREE.CylinderGeometry(0.78, 1, 1, 14, 1);
+		const ball = new THREE.SphereGeometry(0.5, 20, 16);
 		const paint = {};
-		const material = (c) => paint[c] ??= new THREE.MeshStandardMaterial({ color: c, roughness: c === Hair ? 0.95 : 0.75 });
+		const material = (c) => paint[c] ??= new THREE.MeshStandardMaterial({ color: c, roughness: c === Hair || c === Beard ? 1 : c === Sole ? 0.6 : 0.78 });
 		const make = (geometry, color) => {
 			const mesh = new THREE.Mesh(geometry, material(color));
 			mesh.castShadow = true;
@@ -112,26 +116,42 @@ export class Climber {
 		this.rod = (c) => make(rod, c);
 		this.taper = (c) => make(taper, c);
 		this.ball = (c) => make(ball, c);
-		this.pelvis = this.ball(Shorts);
-		this.belly = this.ball(Tee);
-		this.chest = this.ball(Tee);
+		// the boxy tee: rings of a rounded box from the collar to the hem, rebuilt every frame so it can sway
+		const rings = 5, around = Around;
+		const shirt = new THREE.BufferGeometry();
+		shirt.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(rings * around * 3), 3));
+		const index = [];
+		for (let r = 0; r + 1 < rings; r++)
+			for (let a = 0; a < around; a++) {
+				const i = r * around + a, j = r * around + (a + 1) % around;
+				index.push(i, i + around, j, j, i + around, j + around);
+			}
+		shirt.setIndex(index);
+		this.shirt = new THREE.Mesh(shirt, new THREE.MeshStandardMaterial({ color: Tee, roughness: 0.9, side: THREE.DoubleSide }));
+		this.shirt.castShadow = true;
+		this.shirt.frustumCulled = false;
+		this.group.add(this.shirt);
+		this.shorts = this.ball(Shorts);
 		this.neck = this.rod(Skin);
 		this.head = this.ball(Skin);
 		this.hair = this.ball(Hair);
+		this.beard = this.ball(Beard);
+		this.ears = [this.ball(Skin), this.ball(Skin)];
 		this.nose = this.ball(Skin);
 		this.limbs = [0, 1, 2, 3].map(l => {
 			const arm = l >= 2;
-			return { upper: this.taper(arm ? Tee : Shorts), lower: this.taper(Skin), root: this.ball(arm ? Tee : Shorts), joint: this.ball(Skin),
-				end: this.ball(arm ? Skin : Shoe), wrist: this.ball(Skin), fingers: arm ? Array.from({ length: 10 }, () => this.rod(Skin)) : [] };
+			return { cover: this.rod(arm ? Tee : Shorts), upper: this.taper(Skin), lower: this.taper(Skin), root: this.ball(arm ? Tee : Shorts), joint: this.ball(Skin),
+				end: this.ball(arm ? Skin : Shoe), sole: arm ? null : this.ball(Sole), wrist: this.ball(Skin), fingers: arm ? Array.from({ length: 10 }, () => this.rod(Skin)) : [] };
 		});
 		this.marker = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe640, wireframe: true, transparent: true, opacity: 0.8 }));
 		this.group.add(this.marker);
 		this.clock = 0;
+		this.drawn = 0;
 		this.reset();
 	}
 
 	// forget the eased body shape, for a fresh start on the wall
-	reset() { this.turn = 0; this.hips = 18; this.chestDepth = 22; this.look = null; }
+	reset() { this.turn = 0; this.hips = 18; this.chestDepth = 22; this.look = null; this.hem = new Vec3(); this.swing = new Vec3(); this.moving = null; this.last = null; }
 
 	segment(mesh, a, b, radius) {
 		const A = three(a), B = three(b);
@@ -269,20 +289,65 @@ export class Climber {
 		return solve({ roots, up, back: frame.out, head, look: this.look, limbs, marker });
 	}
 
+	// the tee as five rounded-box rings, the hem hanging off a spring: it drapes toward the floor, lags behind the hips, and rides up when the arms go overhead
+	dressShirt(pose, pelvis, chest, up, back, delta) {
+		const raise = [2, 3].reduce((a, l) => a + clamp(pose.limbs[l].end.sub(pose.roots[l]).dot(up) / 45, 0, 1), 0) / 2;
+		if (this.last && delta > 0 && delta < 0.2) {
+			const moving = pelvis.sub(this.last).mul(1 / delta);
+			const shove = this.moving ? moving.sub(this.moving).mul(1 / delta) : new Vec3();
+			this.moving = moving;
+			const down = new Vec3(0, 0, -1);
+			const drape = down.sub(up.mul(down.dot(up)));
+			const target = drape.mul(9).add(up.mul(7 * raise));
+			const len = shove.len();
+			const push = len > 2500 ? shove.mul(2500 / len) : shove;
+			this.swing = this.swing.add(target.sub(this.hem).mul(140 * delta)).sub(this.swing.mul(10 * delta)).sub(push.mul(0.8 * delta));
+			this.hem = this.hem.add(this.swing.mul(delta));
+			if (this.hem.len() > 15) this.hem = this.hem.norm().mul(15);
+		} else { this.hem = new Vec3(); this.swing = new Vec3(); this.moving = null; }
+		this.last = pelvis;
+		const across = pose.roots[3].sub(pose.roots[2]).norm();
+		const hips = pose.roots[1].sub(pose.roots[0]).norm();
+		const broad = clamp(pose.roots[3].dist(pose.roots[2]) * 0.82, 40, 47);
+		const rings = [
+			[chest.add(up.mul(6)).add(back.mul(1)), across, 17, 13],
+			[chest.add(up.mul(1)), across, broad + 6, 21],
+			[chest.sub(up.mul(14)), across, broad + 3, 25],
+			[pelvis.add(up.mul(15)).add(this.hem.mul(0.35)), across.add(hips).norm(), 45, 25],
+			[pelvis.sub(up.mul(1)).add(this.hem), hips, 48, 26.5],
+		];
+		const positions = this.shirt.geometry.attributes.position;
+		rings.forEach(([center, side, width, depth], r) => {
+			const x = side.sub(up.mul(side.dot(up))).norm();
+			const z = back.sub(up.mul(back.dot(up))).sub(x.mul(back.dot(x))).norm();
+			for (let a = 0; a < Around; a++) {
+				// a squarish ring: boxy like a heavy tee, rounded at the corners
+				const t = a / Around * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+				const point = center.add(x.mul(Math.sign(c) * Math.abs(c) ** 0.55 * width / 2)).add(z.mul(Math.sign(s) * Math.abs(s) ** 0.55 * depth / 2));
+				positions.setXYZ(r * Around + a, ...toThree(point));
+			}
+		});
+		positions.needsUpdate = true;
+		this.shirt.geometry.computeVertexNormals();
+	}
+
 	draw(pose) {
-		const [hipR, hipL, shoulderR, shoulderL] = pose.roots;
-		const pelvis = mid(hipR, hipL), chest = mid(shoulderR, shoulderL);
+		const delta = this.clock - this.drawn;
+		this.drawn = this.clock;
+		const [hipR, hipL] = pose.roots;
+		const pelvis = mid(hipR, hipL), chest = mid(pose.roots[2], pose.roots[3]);
 		const up = chest.sub(pelvis).norm();
 		const back = pose.back;
-		const across = shoulderL.sub(shoulderR);
-		const breath = 1 + Math.sin(this.clock * 1.7) * 0.015;
-		this.orient(this.pelvis, pelvis.add(up.mul(3)), hipL.sub(hipR), back, new Vec3(32, 21, 20));
-		this.orient(this.belly, pelvis.lerp(chest, 0.42), across.add(hipL.sub(hipR)), back, new Vec3(26, 24, 14.5));
-		this.orient(this.chest, chest.sub(up.mul(12)), across, back, new Vec3(36, 33 * breath, 19.5 * breath));
+		this.dressShirt(pose, pelvis, chest, up, back, delta);
+		this.orient(this.shorts, pelvis.add(up.mul(3)), hipL.sub(hipR), back, new Vec3(37, 27, 25));
 		const face = pose.look.sub(up.mul(pose.look.dot(up))).norm();
-		this.segment(this.neck, chest.add(up.mul(2)), pose.head.sub(up.mul(8)), 5.5);
+		const side = face.cross(up).norm();
+		this.segment(this.neck, chest.add(up.mul(2)), pose.head.sub(up.mul(7)), 6.5);
 		this.orient(this.head, pose.head, up, face.mul(-1), new Vec3(24, 19, 21));
-		this.orient(this.hair, pose.head.add(up.mul(2.5)).sub(face.mul(2.6)), up, face.mul(-1), new Vec3(22, 20.5, 19));
+		// a buzz cut: a close cap of hair over the top and back, the hairline well up the forehead
+		this.orient(this.hair, pose.head.add(up.mul(3.2)).sub(face.mul(1.8)), up, face.mul(-1), new Vec3(23.2, 19.7, 20.4));
+		this.orient(this.beard, pose.head.sub(up.mul(6)).add(face.mul(3.2)), up, face.mul(-1), new Vec3(11, 17.6, 15));
+		this.ears.forEach((ear, i) => this.orient(ear, pose.head.add(side.mul(i ? 9.4 : -9.4)).sub(face.mul(1)), up, side, new Vec3(6, 4, 2.6)));
 		this.place(this.nose, pose.head.add(face.mul(10)).sub(up.mul(1.5)), 3.6);
 		this.marker.visible = !!pose.marker;
 		if (pose.marker) this.marker.position.copy(three(pose.marker));
@@ -296,14 +361,20 @@ export class Climber {
 				this.place(parts.wrist, limb.end, 6);
 				this.shapeFingers(parts.fingers, h.palm, h.over, h.out, h.thumb, h.grip);
 			} else {
+				// a velcro climbing shoe: yellow upper on a black rubber rand and sole
 				const f = limb.foot;
-				this.orient(parts.end, f.toe.add(f.heel).mul(0.5).add(f.up.mul(2)), f.toe.sub(f.heel), f.up, new Vec3(25, 9.5, 9));
+				const center = f.toe.add(f.heel).mul(0.5).add(f.up.mul(2));
+				this.orient(parts.end, center, f.toe.sub(f.heel), f.up, new Vec3(25, 9.5, 9));
+				this.orient(parts.sole, center.sub(f.up.mul(3)).add(f.toe.sub(f.heel).norm().mul(0.5)), f.toe.sub(f.heel), f.up, new Vec3(26.5, 10.6, 4.6));
 				this.place(parts.wrist, limb.end, 8.5);
 			}
-			this.segment(parts.upper, root, limb.bend, arm ? 6 : 9);
-			this.segment(parts.lower, limb.bend, limb.joint ?? limb.end, arm ? 4.8 : 6.8);
-			this.place(parts.root, root, arm ? 12 : 15);
-			this.place(parts.joint, limb.bend, arm ? 9 : 12.5);
+			const joint = limb.joint ?? limb.end;
+			// a short boxy sleeve over the top of the arm, shorts over the top of the thigh
+			this.segment(parts.cover, root, root.lerp(limb.bend, arm ? 0.5 : 0.45), arm ? 7.6 : 10.5);
+			this.segment(parts.upper, root, limb.bend, arm ? 5.6 : 8.6);
+			this.segment(parts.lower, limb.bend, joint, arm ? 4.6 : 6.4);
+			this.place(parts.root, root, arm ? 13 : 16);
+			this.place(parts.joint, limb.bend, arm ? 9.2 : 12.4);
 		});
 	}
 }
