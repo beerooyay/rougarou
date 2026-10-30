@@ -6,6 +6,10 @@ An indoor bouldering game set in the rougarou rock lounge. Walk the gym, pick a 
 
 ## How to play
 
+- **The menu** (M, Esc or the round button) lists every problem with your sends, best time and flashes, and lets you climb one straight away, walk to it, or set it. Settings change your shirt, shorts and shoe colors, sound, look speed and graphics.
+- **Clips:** press the red dot (or the backtick key) to record the game with its sound. Clips stay in your browser, and the viewer trims, splits and downloads them.
+- **Route setting:** pick "set it" on a problem, then drag holds across the wall, turn them (Q and E, the arrows or the mouse wheel), change their type, add or remove holds. A turned hold is pulled a different way, so the climbing changes too. Your sets are saved in the browser and can be reset.
+
 - **Walking the gym:** WASD to walk (Shift to jog), drag to look around. On a phone the left thumb walks and the right thumb looks. Each problem has a tag with its grade. Walk up to one and click or tap its two start holds (or press E, or the pull on button) to pull on. `[` and `]` take you to the previous or next problem.
 - **Climbing on desktop:** click a hand or foot, move the mouse to reach, then click to place it on whatever it touches. To shift your hips, use WASD or drag on empty wall. Esc puts the limb back, X lets it hang, J jumps down to the mats, R retries, and G shows the whole gym.
 - **Climbing on a phone:** drag a hand or foot onto a hold. To shift your hips, drag on empty wall.

@@ -115,7 +115,8 @@ FVector2D FClimbSim::Spot(int32 Limb) const
 
 void FClimbSim::Restart()
 {
-	Position = FVector2D(0, 1.25f);
+	// the hips start a little above the middle of the four start holds, wherever a setter put them
+	Position = (Holds()[0].Point + Holds()[1].Point + Holds()[2].Point + Holds()[3].Point) / 4 + FVector2D(0, 0.175f);
 	Velocity = FVector2D::ZeroVector;
 	Angle = 0;
 	Spin = 0;

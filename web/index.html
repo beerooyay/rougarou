@@ -8,75 +8,83 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="rougarou: an indoor bouldering game at the rougarou rock lounge. walk the gym, pull onto a problem, move each hand and foot, shift your weight, send it.">
 <title>rougarou</title>
-<style>
-	:root { --ink: #f3efe6; --dim: rgba(243, 239, 230, 0.68); --glass: rgba(16, 16, 20, 0.62); --tape: #f2a007; }
-	* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-	html, body { margin: 0; height: 100%; background: #15151a; color: var(--ink); overflow: hidden; overscroll-behavior: none;
-		font: 500 15px/1.35 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; -webkit-user-select: none; }
-	#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-	.hud { position: fixed; left: 0; right: 0; pointer-events: none; padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left)); }
-	.top { top: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-	.card { background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 12px; padding: 8px 12px; }
-	#route { font-weight: 800; letter-spacing: 0.02em; font-size: 17px; }
-	#route::before { content: "rougarou / "; color: var(--dim); font-weight: 600; }
-	#status { color: var(--dim); max-width: min(560px, 92vw); }
-	#status.warn { color: #ffb38a; }
-	.pump { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--dim); }
-	.bar { width: 64px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
-	.bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #f2a007, #e2401b); }
-	.bottom { bottom: 0; top: auto; padding-bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-	button { pointer-events: auto; font: inherit; font-weight: 700; color: var(--ink); background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.14);
-		border-radius: 999px; padding: 10px 16px; min-height: 44px; min-width: 44px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); cursor: pointer; }
-	button:active { transform: scale(0.96); }
-	button.hot { background: var(--tape); color: #1a1406; border-color: transparent; }
-	[hidden] { display: none !important; }
-	#tip { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(420px, calc(100vw - 32px));
-		text-align: center; pointer-events: none; transition: opacity 0.6s; }
-	#tip.gone { opacity: 0; }
-	#sent { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
-	#sent .card { pointer-events: auto; text-align: center; padding: 20px 24px; display: grid; gap: 12px; }
-	#sent h2 { margin: 0; font-size: 34px; letter-spacing: 0.04em; color: var(--tape); }
-	#sent div { display: flex; gap: 8px; justify-content: center; }
-	.weight { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
-	.weight .bar { width: 30px; }
-	.weight .bar i { background: linear-gradient(90deg, #7fc8a9, #f2a007); }
-	#stick { position: fixed; width: 116px; height: 116px; margin: -58px 0 0 -58px; border-radius: 50%; border: 2px solid rgba(243, 239, 230, 0.35);
-		background: rgba(16, 16, 20, 0.25); pointer-events: none; }
-	#stick i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: rgba(243, 239, 230, 0.55); }
-	#cross { position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 2px solid rgba(243, 239, 230, 0.85);
-		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; }
-	#loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--dim); font-weight: 700; letter-spacing: 0.06em; }
-	@media (max-width: 520px) {
-		body { font-size: 13px; }
-		#route { font-size: 15px; }
-		button { padding: 8px 12px; }
-		.keys { display: none; }
-	}
-	@media (pointer: coarse) { .keys { display: none; } }
-</style>
+<link rel="stylesheet" href="./style.css">
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }</script>
 </head>
 <body>
 <canvas id="view"></canvas>
 <div id="loading">setting the problems...</div>
-<div class="hud top">
-	<div class="card"><div id="route"></div><div id="status"></div></div>
-	<div class="card pump" id="pump">pump <span>L</span><span class="bar"><i id="pumpL"></i></span><span>R</span><span class="bar"><i id="pumpR"></i></span></div>
-	<div class="card weight" id="weight">weight <span>hands</span><span class="bar"><i id="load3"></i></span><span class="bar"><i id="load2"></i></span><span>feet</span><span class="bar"><i id="load1"></i></span><span class="bar"><i id="load0"></i></span></div>
+
+<div class="hud top" id="hud">
+	<div class="card" id="card">
+		<div class="row"><span class="chip" id="grade"><i></i><span></span></span><span id="route"></span><span id="timer"></span></div>
+		<div id="status"></div>
+	</div>
+	<div class="card gauges" id="gauges">
+		<span>pump <span class="bar"><i id="pumpL"></i></span><span class="bar"><i id="pumpR"></i></span></span>
+		<span class="weight">weight <span class="bar"><i id="load3"></i></span><span class="bar"><i id="load2"></i></span><span class="bar"><i id="load1"></i></span><span class="bar"><i id="load0"></i></span></span>
+	</div>
 </div>
+<div id="corner">
+	<button class="round" id="menuBtn" aria-label="menu"><svg viewBox="0 0 16 16"><path d="M3 4.5h10M3 8h10M3 11.5h10"/></svg></button>
+</div>
+<div id="toasts"></div>
 <div id="tip" class="card"></div>
-<div class="hud bottom">
+
+<div class="hud bottom" id="bar">
 	<button id="prev" aria-label="previous problem">&lsaquo;</button>
 	<button id="retry">retry</button>
 	<button id="pull" class="hot" hidden>pull on</button>
-	<button id="wide">gym</button>
+	<button id="edit" hidden>set this problem</button>
 	<button id="back" class="hot" hidden>put back</button>
 	<button id="hang" hidden>let it hang</button>
 	<button id="drop" hidden>jump down</button>
 	<button id="next" aria-label="next problem">&rsaquo;</button>
 	<span class="card keys" id="keys"></span>
 </div>
-<div id="sent" hidden><div class="card"><h2>SENT!</h2><div><button id="again">again</button><button id="onward" class="hot">jump down</button></div></div></div>
+
+<div id="editbar" class="glass" hidden>
+	<button id="eKind">jug</button>
+	<button class="round" id="eLeft" aria-label="rotate left"><svg viewBox="0 0 16 16"><path d="M4 6.5a5 5 0 1 1 0.6 4.6M4 2.8v3.7h3.7"/></svg></button>
+	<button class="round" id="eRight" aria-label="rotate right"><svg viewBox="0 0 16 16"><path d="M12 6.5a5 5 0 1 0-0.6 4.6M12 2.8v3.7H8.3"/></svg></button>
+	<span class="sep"></span>
+	<button id="eAdd">add hold</button>
+	<button id="eDel" class="danger">remove</button>
+	<button id="eReset" class="ghost">reset</button>
+	<span class="sep"></span>
+	<button id="eDone" class="hot">done</button>
+</div>
+
+<div id="sent" hidden><div class="card">
+	<div class="kicker" id="sentRoute"></div>
+	<h2>SENT</h2>
+	<div class="line" id="sentLine"></div>
+	<div class="badges" id="sentBadges"></div>
+	<div class="actions"><button id="again">again</button><button id="onward">jump down</button><button id="nextUp" class="hot">next problem</button></div>
+</div></div>
+
+<div id="menu" class="screen">
+	<div class="sheet glass">
+		<header class="sheet-head">
+			<div><div class="kicker">the rock lounge</div><div class="logo">rouga<b>rou</b></div></div>
+			<div class="score" id="score"></div>
+		</header>
+		<nav class="tabs" id="tabs">
+			<button data-tab="problems" class="on">problems</button>
+			<button data-tab="clips">clips</button>
+			<button data-tab="settings">settings</button>
+			<button data-tab="how">how to climb</button>
+		</nav>
+		<div class="sheet-body">
+			<section data-pane="problems"><div class="problems" id="problems"></div></section>
+			<section data-pane="clips" hidden><div id="clips"></div></section>
+			<section data-pane="settings" hidden><div class="settings" id="settings"></div></section>
+			<section data-pane="how" hidden><div class="how" id="how"></div></section>
+		</div>
+		<footer class="sheet-foot"><span class="grow" id="menuNote"></span><button class="primary" id="play">walk into the gym</button></footer>
+	</div>
+</div>
+
 <div id="stick" hidden><i></i></div>
 <div id="cross" hidden></div>
 <script type="module" src="./main.js"></script>

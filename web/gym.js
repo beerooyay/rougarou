@@ -486,17 +486,20 @@ export function buildGym(routes) {
 	for (let x = 1000; x <= 1700; x += 100) block(V(x, -1538, 230), V(6, 6, 460), [0.8, 0.8, 0.8], false);
 	lights.push({ at: V(1350, -1350, 260), color: [0.8, 0.9, 1], intensity: 4, range: 12 });
 
-	// ---- every problem's holds in its tape color, turned so each lip faces away from the way it is pulled
-	routes.forEach((problem, index) => {
-		const color = swatch(tape(index));
-		problem.holds.forEach((spot, h) => {
-			const face = problem.at(spot.point.y);
-			const up = face.right.mul(-spot.pull.x).add(face.up.mul(-spot.pull.y));
-			buildHold(pickTemplate(spot.kind, index * 31 + h), holdSize(spot.kind), holdFrame(problem.map(spot.point), face.out, up), index * 977 + h, paint[color], shadow, true);
-		});
-	});
-
 	return { boards, palette, paint, shadow, blocks, lights, holes };
+}
+
+// one problem's holds in its tape color, turned so each lip faces away from the way it is pulled. built apart from the gym
+// so the route editor can rebuild a problem after moving its holds. a hold's Seed keeps its shape when holds are added or removed
+export function routeHolds(problem, index) {
+	const body = new Sink(), dark = new Sink();
+	problem.holds.forEach((spot, h) => {
+		const face = problem.at(spot.point.y);
+		const up = face.right.mul(-spot.pull.x).add(face.up.mul(-spot.pull.y));
+		const seed = spot.seed ?? h;
+		buildHold(pickTemplate(spot.kind, index * 31 + seed), holdSize(spot.kind), holdFrame(problem.map(spot.point), face.out, up), index * 977 + seed, body, dark, true);
+	});
+	return { body, dark, color: tape(index) };
 }
 
 // unreal's RotateAngleAxis: Vector turned Degrees about Axis

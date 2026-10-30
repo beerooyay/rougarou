@@ -144,7 +144,9 @@ export class Sim {
 	arrived(limb) { return this.latch[limb] >= 0; }
 
 	restart() {
-		this.position = new Vec2(0, 1.25);
+		// the hips start a little above the middle of the four start holds, wherever a setter put them
+		const starts = [0, 1, 2, 3].map(l => this.holds()[l].point);
+		this.position = new Vec2(starts.reduce((a, p) => a + p.x, 0) / 4, starts.reduce((a, p) => a + p.y, 0) / 4 + 0.175);
 		this.velocity = new Vec2();
 		this.angle = 0;
 		this.spin = 0;

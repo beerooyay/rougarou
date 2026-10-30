@@ -3,10 +3,14 @@
 
 import * as THREE from 'three';
 import { Sim, Vec2, Vec3, Names } from './sim.js';
-import { problems, buildGym, toThree, Overview, Focus, tape } from './gym.js';
+import { problems, buildGym, routeHolds, toThree, Overview, Focus, tape } from './gym.js';
 import { Climber, walkPose, blend, handOn, solve } from './climber.js';
 import { Ragdoll } from './ragdoll.js';
 import { World, floorAt } from './world.js';
+import { Audio } from './audio.js';
+import { Recorder } from './recorder.js';
+import { UI, clock } from './ui.js';
+import { Editor } from './editor.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const three = (v) => new THREE.Vector3(...toThree(v));
@@ -19,11 +23,13 @@ const mid = (a, b) => a.add(b).mul(0.5);
 const turn = (a, b, step) => { const gap = Math.atan2(Math.sin(b - a), Math.cos(b - a)); return a + clamp(gap, -step, step); };
 
 const routes = problems();
+routes.forEach((r, i) => { r.tape = tape(i); });
+// the problems as set, for the route editor's reset
+const originals = problems();
 const sim = new Sim(routes);
 // ?route=n skips the walk and starts on that problem
 const asked = parseInt(new URLSearchParams(location.search).get('route') ?? '', 10);
 sim.route = Number.isFinite(asked) ? clamp(asked, 0, routes.length - 1) : 0;
-sim.restart();
 
 // ---------------------------------------------------------------- the scene
 
@@ -38,6 +44,9 @@ renderer.toneMappingExposure = 0.92;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x15151a);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 80);
+// saved route sets are loaded before anything is built from the holds
+const editor = new Editor(scene, routes, originals, { cursor: (x, y) => cursor(x, y), screenOf: (p) => screenOf(p), rebuild: (i) => rebuild(i), toast: (t, k) => ui.toast(t, k) });
+sim.restart();
 
 scene.add(new THREE.HemisphereLight(0xfff3e2, 0x2a241e, 1.05));
 // one key light from over the camera's shoulder so hold shadows fall short and soft onto the wall; it follows the climber
@@ -81,6 +90,32 @@ gym.paint.forEach((sink, i) => { soup(sink, gym.palette[i], 0.5).castShadow = tr
 	scene.add(mesh);
 }
 soup(gym.shadow, [0.01, 0.01, 0.01]);
+// each problem's holds are their own meshes, rebuilt when the route setter moves one
+const sets = routes.map(() => {
+	const group = new THREE.Group();
+	scene.add(group);
+	return group;
+});
+function rebuild(index) {
+	const group = sets[index];
+	for (const mesh of [...group.children]) { mesh.geometry.dispose(); mesh.material.dispose(); group.remove(mesh); }
+	const built = routeHolds(routes[index], index);
+	const mesh = (sink, color, roughness) => {
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.Float32BufferAttribute(sink.positions, 3));
+		geometry.setAttribute('normal', new THREE.Float32BufferAttribute(sink.normals, 3));
+		const m = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ roughness, metalness: 0 }));
+		m.material.color.setRGB(...color);
+		m.castShadow = m.receiveShadow = true;
+		group.add(m);
+	};
+	mesh(built.body, built.color, 0.5);
+	mesh(built.dark, [0.01, 0.01, 0.01], 0.8);
+	if (spots) {
+		spots[index] = world.startSpot(routes[index]);
+		tags[index].position.copy(three(spots[index].at.add(Z.mul(255))));
+	}
+}
 // the blockout: one instanced box batch per color
 {
 	const batches = new Map();
@@ -111,8 +146,10 @@ for (const l of gym.lights) {
 const climber = new Climber(scene);
 
 const world = new World(gym.blocks);
+let spots = null;
+routes.forEach((_, i) => rebuild(i));
 // where to stand under each problem's start holds
-const spots = routes.map(r => world.startSpot(r));
+spots = routes.map(r => world.startSpot(r));
 
 // a grade tag over every problem, the way a gym tapes its starts
 const tags = routes.map((route, index) => {
@@ -149,6 +186,78 @@ const rings = [0, 1].map(() => {
 	return ring;
 });
 
+// chalk: little white puffs where a hand slaps a hold, and a burst of colored chalk for a send
+const chalk = (() => {
+	const paper = document.createElement('canvas');
+	paper.width = paper.height = 64;
+	const g = paper.getContext('2d');
+	const glow = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+	glow.addColorStop(0, 'rgba(255,255,255,0.9)');
+	glow.addColorStop(1, 'rgba(255,255,255,0)');
+	g.fillStyle = glow;
+	g.fillRect(0, 0, 64, 64);
+	const map = new THREE.CanvasTexture(paper);
+	const pool = Array.from({ length: 90 }, () => {
+		const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, opacity: 0 }));
+		sprite.visible = false;
+		scene.add(sprite);
+		return { sprite, life: 0, age: 0, v: new Vec3(), at: new Vec3(), size: 0 };
+	});
+	let next = 0;
+	return {
+		puff(at, count = 9, colors = null, speed = 40, size = 7) {
+			for (let i = 0; i < count; i++) {
+				const p = pool[next++ % pool.length];
+				p.at = at;
+				p.v = new Vec3(Math.random() - 0.5, Math.random() - 0.5, Math.random() * 0.8 + 0.1).norm().mul(speed * (0.4 + Math.random()));
+				p.life = 0.7 + Math.random() * 0.6;
+				p.age = 0;
+				p.size = size * (0.6 + Math.random() * 0.8);
+				p.sprite.material.color.set(colors ? colors[i % colors.length] : 0xffffff);
+				p.sprite.visible = true;
+			}
+		},
+		step(delta) {
+			for (const p of pool) {
+				if (!p.sprite.visible) continue;
+				p.age += delta;
+				if (p.age >= p.life) { p.sprite.visible = false; continue; }
+				p.v = p.v.mul(1 / (1 + delta * 3)).add(new Vec3(0, 0, -20 * delta));
+				p.at = p.at.add(p.v.mul(delta));
+				const k = p.age / p.life;
+				p.sprite.position.copy(three(p.at));
+				p.sprite.scale.setScalar((p.size * (1 + k * 1.5)) / 100);
+				p.sprite.material.opacity = 0.55 * (1 - k);
+			}
+		},
+	};
+})();
+
+// ---------------------------------------------------------------- sound, the menu, clips
+
+const audio = new Audio();
+const ui = new UI(routes, {
+	play: () => { elapsed = 0; },
+	pause: () => { if (document.pointerLockElement) document.exitPointerLock(); },
+	go: (index, pull) => goTo(index, pull),
+	edit: (index) => editRoute(index),
+	apply: (settings) => applySettings(settings),
+	clips: (el) => recorder.gallery(el),
+});
+const recorder = new Recorder({ canvas, audio, hud: { toast: (t, k) => ui.toast(t, k), get mode() { return touchy ? 'touch' : 'kbm'; } },
+	pause: () => ui.openMenu(), resume: () => ui.close() });
+$('corner').prepend(recorder.recBtn);
+function applySettings(s) {
+	climber.setOutfit(s);
+	audio.set(s.volume, s.muted);
+	// fast trades shadow sharpness and resolution for frame rate; auto picks fast on a phone
+	const fast = s.quality === 'low' || (s.quality === 'auto' && touchy);
+	renderer.setPixelRatio(Math.min(devicePixelRatio, fast ? 1.5 : 2));
+	const size = fast ? 1024 : 2048;
+	if (key.shadow.mapSize.x !== size) { key.shadow.mapSize.set(size, size); key.shadow.map?.dispose(); key.shadow.map = null; }
+	resize();
+}
+
 // ---------------------------------------------------------------- state
 
 // walk the gym, mount a problem, climb, fall, rise off the mat, or hop down
@@ -158,6 +267,10 @@ const walker = { at: new Vec3(450, 0, 28), yaw: Math.PI, heading: new Vec3(-1, 0
 let camYaw = Math.PI, camPitch = -0.3;
 let pose = null, ragdoll = null, stages = null;
 let note = '', noted = 0;
+// the attempt clock: when this go on the problem started, and how long the send took
+let started = 0, finished = 0;
+// what the last frame saw, to hear and see catches, slips and landings
+let latched = [1, 1, 1, 1], gripped = [0, 1, 2, 3], landed = false, stride = 0;
 
 // ---------------------------------------------------------------- controls
 
@@ -244,6 +357,61 @@ function cancel() {
 
 function letGo() { limb = -1; }
 
+// a fresh go at the current problem: the clock restarts and it counts as an attempt
+function begin() {
+	started = climber.clock;
+	finished = 0;
+	latched = [...sim.latch];
+	gripped = [...sim.grips];
+	ui.attempt(routes[sim.route]);
+}
+
+function sent() {
+	const route = routes[sim.route];
+	finished = climber.clock - started;
+	const was = ui.send(route, finished);
+	$('sentRoute').textContent = `${route.name} · ${route.grade}`;
+	$('sentLine').textContent = `in ${clock(finished)}`;
+	const badges = [was.flash && 'flash', was.first && !was.flash && 'first send', was.best && 'new best'].filter(Boolean);
+	$('sentBadges').innerHTML = badges.map(b => `<span>${b}</span>`).join('');
+	$('sent').hidden = false;
+	audio.fanfare(was.flash || was.best);
+	const top = route.map(route.holds[route.holds.length - 1].point, 10);
+	chalk.puff(top, 30, ['#f2a007', '#ffffff', `#${new THREE.Color().setRGB(...route.tape).getHexString()}`, '#8fd6a8'], 160, 9);
+}
+
+// straight to a problem: walk there, or walk there and pull on
+function goTo(index, pull) {
+	if (editor.active) finishEdit();
+	sim.route = index;
+	const spot = spots[index];
+	stand(world.clear(pull ? spot.at : spot.at.add(spot.out.mul(130)), spot.out));
+	stages = null;
+	ragdoll = null;
+	$('sent').hidden = true;
+	toWalk();
+	if (pull) { walker.near = index; walker.want = [true, true]; }
+}
+
+// the route setter: the climber steps back and the camera squares up to the wall
+function editRoute(index) {
+	goTo(index, false);
+	mode = 'edit';
+	editor.start(index);
+	$('editbar').hidden = false;
+	$('bar').hidden = true;
+	$('tip').classList.add('gone');
+	ui.toast('drag a hold to move it, turn it with the arrows', 'good');
+}
+function finishEdit() {
+	const index = editor.index;
+	editor.stop();
+	$('editbar').hidden = true;
+	$('bar').hidden = false;
+	if (index >= 0) { rebuild(index); ui.toast(routes[index].edited ? 'your set is saved' : 'back to the original set', 'good'); }
+	mode = 'walk';
+}
+
 // ---------------------------------------------------------------- moving between walking and climbing
 
 const distanceTo = (spot) => Math.hypot(spot.at.x - walker.at.x, spot.at.y - walker.at.y);
@@ -295,8 +463,9 @@ function mount() {
 	walker.lift = [0, 0];
 	mode = 'mount';
 	limb = -1;
+	audio.grab(0.8);
 	// the feet step up onto their start holds as the hands take the weight
-	script([{ pose: () => climber.climbPose(sim, -1, 1 / 60), length: 0.75, curve: ease }], () => { mode = 'climb'; });
+	script([{ pose: () => climber.climbPose(sim, -1, 1 / 60), length: 0.75, curve: ease }], () => { mode = 'climb'; begin(); });
 }
 
 function toWalk() { mode = 'walk'; camYaw = walker.yaw; limb = -1; }
@@ -315,6 +484,8 @@ function startFall() {
 	const face = routes[sim.route], panel = face.at(sim.position.y);
 	const velocity = panel.right.mul(sim.velocity.x * 100).add(panel.up.mul(sim.velocity.y * 100));
 	ragdoll = new Ragdoll(pose, velocity, face);
+	landed = false;
+	audio.slip();
 	note = sim.hint;
 	noted = 0;
 	mode = 'fall';
@@ -357,6 +528,7 @@ function retry() {
 	mode = 'climb';
 	limb = -1;
 	$('sent').hidden = true;
+	begin();
 }
 
 // walk over to the previous or next problem
@@ -378,6 +550,7 @@ canvas.addEventListener('pointerdown', (e) => {
 	canvas.setPointerCapture(e.pointerId);
 	Object.assign(pointer, { x: e.clientX, y: e.clientY, inside: true, touch: e.pointerType !== 'mouse' });
 	$('tip').classList.add('gone');
+	if (mode === 'edit') { editor.down(e.clientX, e.clientY); return; }
 	if (mode === 'walk' && e.pointerType === 'mouse') {
 		// a mouse takes over the camera like any third-person game: click to look around freely, esc to get the cursor back.
 		// while it is held, a click grabs whatever start hold the crosshair is on
@@ -407,11 +580,12 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 canvas.addEventListener('pointermove', (e) => {
 	if (document.pointerLockElement === canvas) {
-		camYaw += e.movementX * 0.0025;
-		camPitch = clamp(camPitch - e.movementY * 0.002, -0.85, 0.3);
+		camYaw += e.movementX * 0.0025 * ui.settings.look;
+		camPitch = clamp(camPitch - e.movementY * 0.002 * ui.settings.look, -0.85, 0.3);
 		return;
 	}
 	Object.assign(pointer, { x: e.clientX, y: e.clientY, inside: true, touch: e.pointerType !== 'mouse' });
+	if (mode === 'edit') { editor.move(e.clientX, e.clientY); return; }
 	if (stick && e.pointerId === stick.id) {
 		stick.dx = e.clientX - stick.x;
 		stick.dy = e.clientY - stick.y;
@@ -421,8 +595,8 @@ canvas.addEventListener('pointermove', (e) => {
 	if (looking && e.pointerId === looking.id) {
 		const dx = e.clientX - looking.x, dy = e.clientY - looking.y;
 		if (Math.abs(dx) + Math.abs(dy) > 3) looking.moved = looking.moved || Math.hypot(e.clientX - looking.x, e.clientY - looking.y) > 3;
-		camYaw += dx * 0.006;
-		camPitch = clamp(camPitch - dy * 0.004, -0.85, 0.3);
+		camYaw += dx * 0.006 * ui.settings.look;
+		camPitch = clamp(camPitch - dy * 0.004 * ui.settings.look, -0.85, 0.3);
 		looking.x = e.clientX;
 		looking.y = e.clientY;
 	}
@@ -430,6 +604,7 @@ canvas.addEventListener('pointermove', (e) => {
 	if (joystick) { joystick.dx = e.clientX - joystick.x; joystick.dy = e.clientY - joystick.y; }
 });
 const release = (e) => {
+	if (mode === 'edit') editor.up();
 	if (stick && e.pointerId === stick.id) { stick = null; $('stick').hidden = true; $('stick').firstChild.style.transform = ''; }
 	if (looking && e.pointerId === looking.id) {
 		// a tap rather than a drag reaches for whatever start hold it lands on
@@ -450,7 +625,19 @@ canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') 
 
 addEventListener('keydown', (e) => {
 	const k = e.key.toLowerCase();
+	if (e.target.tagName === 'INPUT') return;
+	if (e.code === 'Backquote') { recorder.toggle(); return; }
+	if (k === 'm' || (k === 'escape' && limb < 0 && mode !== 'edit')) { ui.toggle(); return; }
+	if (ui.open || recorder.view) return;
 	keys.add(k);
+	if (mode === 'edit') {
+		if (k === 'q' || k === 'arrowleft') editor.turn(15);
+		if (k === 'e' || k === 'arrowright') editor.turn(-15);
+		if (k === 't') editor.kind();
+		if (k === 'delete' || k === 'backspace') editor.remove();
+		if (k === 'escape' || k === 'enter') finishEdit();
+		return;
+	}
 	if (k === 'r') retry();
 	if (k === ']') visit(1);
 	if (k === '[') visit(-1);
@@ -467,12 +654,23 @@ $('prev').onclick = () => visit(-1);
 $('next').onclick = () => visit(1);
 $('retry').onclick = retry;
 $('pull').onclick = pullOn;
-$('wide').onclick = () => { wide = !wide; };
+$('edit').onclick = () => { if (walker.near >= 0) editRoute(walker.near); };
 $('back').onclick = cancel;
 $('hang').onclick = letGo;
 $('drop').onclick = jumpDown;
 $('again').onclick = retry;
 $('onward').onclick = jumpDown;
+$('nextUp').onclick = () => goTo((sim.route + 1) % routes.length, true);
+$('menuBtn').onclick = () => ui.toggle();
+$('eKind').onclick = () => editor.kind();
+$('eLeft').onclick = () => editor.turn(15);
+$('eRight').onclick = () => editor.turn(-15);
+$('eAdd').onclick = () => editor.add();
+$('eDel').onclick = () => editor.remove();
+$('eReset').onclick = () => editor.reset();
+$('eDone').onclick = finishEdit;
+canvas.addEventListener('wheel', (e) => { if (mode === 'edit') { e.preventDefault(); editor.turn(e.deltaY > 0 ? -10 : 10); } }, { passive: false });
+for (const b of document.querySelectorAll('button')) b.addEventListener('click', () => audio.click());
 $('tip').textContent = touchy
 	? 'left thumb walks, right thumb looks. walk up to a problem and tap its two start holds to pull on.'
 	: 'wasd to walk, click to look around with the mouse. walk up to a problem and click its two start holds to pull on.';
@@ -506,6 +704,8 @@ function walk(delta) {
 	const next = world.move(walker.at, walker.heading.mul(walker.speed * delta));
 	const moved = Math.hypot(next.x - walker.at.x, next.y - walker.at.y);
 	walker.phase += moved / 130 * Math.PI * 2;
+	// a footfall every half stride
+	if (Math.floor(walker.phase / Math.PI) !== stride) { stride = Math.floor(walker.phase / Math.PI); audio.pad(); }
 	walker.at = new Vec3(next.x, next.y, walker.at.z + (floorAt(next.x, next.y) - walker.at.z) * Math.min(1, delta * 14));
 	walker.amp += (clamp(moved / Math.max(delta, 1e-3) / 165, 0, 1.4) - walker.amp) * Math.min(1, delta * 10);
 	let near = -1, closest = 170;
@@ -554,6 +754,18 @@ function climb(delta) {
 	banked = Math.min(banked + delta, 0.25);
 	while (banked >= 1 / 60 && !sim.fallen) { sim.step(1 / 60); banked -= 1 / 60; }
 	pose = climber.climbPose(sim, limb, delta);
+	// what changed on the wall this frame: a catch slaps and puffs chalk, a hold lost to physics squeaks
+	const face = routes[sim.route];
+	for (let l = 0; l < 4; l++) {
+		if (latched[l] < 0 && sim.latch[l] >= 0 && (sim.grips[l] >= 0 || sim.smeared[l])) {
+			if (l >= 2) { audio.grab(sim.latch[l]); if (sim.grips[l] >= 0) chalk.puff(face.map(sim.tips[l], 6)); }
+			else audio.step();
+		}
+		if (gripped[l] >= 0 && sim.grips[l] < 0 && l !== limb && !sim.fallen) audio.slip();
+	}
+	latched = [...sim.latch];
+	gripped = [...sim.grips];
+	if (sim.won && !finished) sent();
 	if (sim.fallen) startFall();
 }
 
@@ -585,22 +797,30 @@ function frame(now) {
 }
 
 function update(real) {
-	const delta = Math.min(real, 0.1);
+	// the menu and the clip viewer pause the climb; the gym keeps drawing behind them
+	const paused = ui.open || !!recorder.view;
+	const delta = paused ? 0 : Math.min(real, 0.1);
 	climber.clock += delta;
 	noted += delta;
 
-	if (mode === 'walk') walk(delta);
+	if (paused) { /* nothing moves */ }
+	else if (mode === 'walk') walk(delta);
 	else if (mode === 'climb') climb(delta);
+	else if (mode === 'edit') { walker.lift = [0, 0]; pose = walkerPose(); editor.frame(climber.clock); }
 	else if (mode === 'fall') {
 		ragdoll.step(delta);
 		pose = ragdoll.pose();
+		if (ragdoll.landed && !landed) { landed = true; audio.thud(); chalk.puff(mid(pose.roots[0], pose.roots[1]), 12, ['#2a2a2e'], 60, 14); }
 		if (ragdoll.settled() || ragdoll.time > 3.5) getUp();
 	} else if (stages) runStages(delta);
+	// the setter's view is the wall alone
+	climber.group.visible = mode !== 'edit';
 	climber.draw(pose);
+	chalk.step(delta);
 
 	// the opening shot holds the whole gym, then swoops in; g flips back to it
 	elapsed += real;
-	const overview = wide || elapsed < 2.5;
+	const overview = wide || !ui.started || elapsed < 2.2;
 	const tall = camera.aspect < 1;
 	const face = routes[sim.route];
 	const pelvis = mid(pose.roots[0], pose.roots[1]);
@@ -617,6 +837,15 @@ function update(real) {
 			if (world.solid(p, 12) || p.z < floorAt(p.x, p.y) + 15) { goal = target.sub(direction.mul(Math.max(40, d - 20))); break; }
 		}
 		speed = view.dist(goal) > 400 ? 2.5 : 7;
+	} else if (mode === 'edit') {
+		// square on to the problem, far enough back to see every hold
+		const top = face.panels.reduce((a, p) => a + p.length, 0);
+		const middle = face.map(new Vec2(0, top * 0.45), 0);
+		const out = face.panels[0].out;
+		const flat = new Vec3(out.x, out.y, 0).norm();
+		target = middle;
+		goal = middle.add(flat.mul(Math.max(560, top * 130) * (tall ? 1.5 : 1))).add(Z.mul(40)).add(face.panels[0].right.mul(face.aside));
+		speed = 3;
 	} else {
 		const panel = face.at(mode === 'climb' ? sim.position.y : 1.2);
 		const out = new Vec3(panel.out.x, panel.out.y, 0);
@@ -651,19 +880,29 @@ function update(real) {
 	// the hud
 	const climbing = mode === 'climb' || mode === 'mount';
 	const near = walker.near >= 0 ? routes[walker.near] : null;
-	if (climbing || (mode === 'fall')) $('route').textContent = `${face.name}  ${face.grade}  ${sim.route + 1}/${routes.length}`;
-	else $('route').textContent = near ? `${near.name}  ${near.grade}` : 'the rock lounge';
+	const shown = climbing || mode === 'fall' || mode === 'edit' ? face : near;
+	$('route').textContent = shown ? shown.name : 'the rock lounge';
+	$('grade').hidden = !shown;
+	if (shown) {
+		$('grade').lastChild.textContent = shown.grade;
+		$('grade').style.setProperty('--tape', `rgb(${shown.tape.map(c => Math.round(c * 255)).join(',')})`);
+	}
+	$('timer').textContent = climbing && started ? clock(finished || climber.clock - started) : '';
+	$('timer').classList.toggle('done', !!finished);
 	const sliding = Math.max(sim.strain[2], sim.strain[3]) > 0.9;
 	let status;
-	if (mode === 'fall') status = note;
+	if (mode === 'edit') status = editor.hold ? `${editor.label(editor.selected)}: drag to move, q and e or the arrows turn it` : 'pick a hold to move it. green are the starts, red the finish';
+	else if (mode === 'fall') status = note;
 	else if (climbing) status = limb >= 0 ? `${Names[limb]} off the wall` : sliding ? 'fingers sliding: get your feet under you' : sim.topped > 0 && !sim.won ? 'matched the top, hold it...' : (sim.hint || 'pick a hand or foot');
 	else if (note && noted < 4) status = note;
-	else if (near) status = walker.want.some(Boolean) ? 'reaching for the start...' : touchy ? 'tap the two start holds to pull on' : 'click the two start holds to pull on, or press e';
-	else status = 'walk up to a problem: each tag shows its grade';
+	else if (near) {
+		const r = ui.stats[near.name];
+		const record = r?.sends ? ` · best ${clock(r.best)}` : '';
+		status = (walker.want.some(Boolean) ? 'reaching for the start...' : touchy ? 'tap the two glowing start holds to pull on' : 'click the two glowing start holds, or press e') + record;
+	} else status = 'walk up to a problem: each tag shows its grade';
 	$('status').textContent = status;
 	$('status').classList.toggle('warn', (climbing && sliding && limb < 0) || mode === 'fall');
-	show('pump', climbing);
-	show('weight', climbing);
+	show('gauges', climbing && ui.settings.gauges);
 	bars[0].style.width = `${sim.pump[3] * 100}%`;
 	bars[1].style.width = `${sim.pump[2] * 100}%`;
 	const total = sim.loads.reduce((a, b) => a + b, 0) || 1;
@@ -673,21 +912,24 @@ function update(real) {
 	show('drop', mode === 'climb' && limb < 0);
 	show('retry', mode === 'climb' || mode === 'fall');
 	show('pull', mode === 'walk' && !!near);
+	show('edit', mode === 'walk' && !!near && !touchy);
+	show('prev', mode === 'walk');
+	show('next', mode === 'walk');
 	const locked = document.pointerLockElement === canvas;
 	$('cross').hidden = !(locked && mode === 'walk');
-	$('keys').textContent = climbing
-		? 'wasd hips · esc put back · x hang · j jump down · r retry · g gym'
+	$('keys').textContent = mode === 'edit' ? 'drag a hold · q e turn · t kind · delete removes · wheel turns · enter done'
+		: climbing ? 'wasd hips · esc put back · x hang · j jump down · r retry · m menu · ` record'
 		: locked ? 'wasd walk · shift jog · mouse looks · click a start hold · e pull on · esc frees the mouse'
-		: 'wasd walk · shift jog · click to look around · e pull on · [ ] next problem · g gym';
+		: 'wasd walk · shift jog · click to look around · e pull on · [ ] next · m menu · ` record';
 	if (mode === 'mount' && !$('tip').classList.contains('gone') && $('tip').textContent !== climbTip) $('tip').textContent = climbTip;
-	if (sim.won && $('sent').hidden && mode === 'climb') $('sent').hidden = false;
 	renderer.render(scene, camera);
 }
-if (mode === 'climb') pose = climber.climbPose(sim, -1, 1 / 60);
+applySettings(ui.settings);
+if (mode === 'climb') { pose = climber.climbPose(sim, -1, 1 / 60); ui.close(); begin(); }
 else { walker.near = -1; pose = walkerPose(); }
 $('loading').remove();
 requestAnimationFrame(frame);
 // a handle for poking at the game from the console
-window.rougarou = { sim, routes, spots, walker, world, screenOf, place, lift, pullOn, jumpDown, visit, retry, get mode() { return mode; }, get pose() { return pose; }, view: () => ({ camYaw, camPitch }),
+window.rougarou = { sim, routes, get spots() { return spots; }, walker, world, ui, editor, recorder, audio, screenOf, place, lift, pullOn, jumpDown, visit, retry, goTo, editRoute, finishEdit, get mode() { return mode; }, get pose() { return pose; }, view: () => ({ camYaw, camPitch }),
 	// run the game forward without waiting on the browser's frame clock
 	tick: (seconds) => { for (let t = 0; t < seconds; t += 1 / 60) update(1 / 60); } };
