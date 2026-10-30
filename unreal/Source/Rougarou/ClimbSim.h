@@ -65,6 +65,10 @@ struct FClimbBody
 	float Lengths[4] = { 0.46f, 0.46f, 0.27f, 0.27f };
 	// how far each limb root sits off the wall, which costs reach
 	float Depths[4] = { 0.1f, 0.1f, 0.14f, 0.14f };
+	// a leg is about a sixth of the body's mass and an arm a twentieth: where they hang turns the body, which is what a flag uses
+	float Masses[4] = { 10.5f, 10.5f, 3.3f, 3.3f };
+	// rubber on plywood grips well, skin much less
+	float Friction[4] = { 1.1f, 1.1f, 0.6f, 0.6f };
 	float Inertia = 5;
 };
 
@@ -103,6 +107,14 @@ public:
 	float Strain[4] = {};
 	// the stance the hips are being moved toward, eased like muscles rather than snapped
 	FVector2D Goal = FVector2D::ZeroVector;
+	// what each contact is carrying, newtons
+	float Loads[4] = {};
+	// how hard the body is pressed into the wall, by a slab leaning it on or by hands pulling the hips in: all bare wall grips with
+	float Squeeze = 0;
+	// how long the body has had nothing but feet on a wall too steep to stand on
+	float Tipping = 0;
+	// off the wall: everything let go and the sim stops until a restart
+	bool Fallen = false;
 
 	void Restart();
 	void Step(float Delta);
@@ -126,6 +138,7 @@ public:
 	bool Grab(int32 Limb, int32 Hold);
 	bool Smear(int32 Limb, FVector2D Point);
 	void Drop(int32 Limb);
+	void Fall(const TCHAR* Why);
 
 	struct FState
 	{
@@ -139,8 +152,8 @@ public:
 		FVector2D Tips[4];
 		float Latch[4];
 		FVector2D Goal;
-		float Topped;
-		bool Won;
+		float Topped, Tipping;
+		bool Won, Fallen;
 	};
 	FState Save() const;
 	void Load(const FState& State);

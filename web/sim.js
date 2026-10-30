@@ -54,6 +54,8 @@ export class Route {
 		// where the camera stands, centimeters: back from the wall, and to the side along it
 		this.stand = 540;
 		this.aside = 0;
+		// the v-scale grade on the tag at the start
+		this.grade = 'V0';
 	}
 	at(y) {
 		for (const p of this.panels) if (y < p.start + p.length) return p;
@@ -76,8 +78,14 @@ const Body = {
 	seats: [new Vec2(-0.11, -0.26), new Vec2(0.11, -0.26), new Vec2(-0.28, 0.26), new Vec2(0.28, 0.26)],
 	lengths: [0.46, 0.46, 0.27, 0.27],
 	depths: [0.1, 0.1, 0.14, 0.14],
+	// a leg is about a sixth of the body's mass and an arm a twentieth: where they hang turns the body, which is what a flag uses
+	masses: [10.5, 10.5, 3.3, 3.3],
 	inertia: 5,
 };
+// how much a hold lets a hand pull the hips in toward the wall: the squeeze a smearing foot or a palm grips with
+const Incut = { jug: 1, crimp: 0.55, pocket: 0.75, pinch: 0.85, sloper: 0.25 };
+// rubber on plywood grips well, skin much less
+const Friction = [1.1, 1.1, 0.6, 0.6];
 
 export class Sim {
 	constructor(routes) {
@@ -153,6 +161,10 @@ export class Sim {
 		this.topped = 0;
 		this.reaching = -1;
 		this.goal = this.position.copy();
+		this.loads = [0, 0, 0, 0];
+		this.squeeze = 0;
+		this.tipping = 0;
+		this.fallen = false;
 	}
 
 	grab(limb, hold) {
@@ -184,7 +196,7 @@ export class Sim {
 		this.posts[limb] = point.copy();
 		this.slips[limb] = 0;
 		this.latch[limb] = -1;
-		this.hint = `${Names[limb]} pressed on the wall`;
+		this.hint = limb >= 2 ? `${Names[limb]} palming the wall: balance, not a pull` : `${Names[limb]} smearing: it sticks as hard as you press it in`;
 		return true;
 	}
 
@@ -195,7 +207,16 @@ export class Sim {
 		this.strain[limb] = 0;
 	}
 
+	// off the wall: everything lets go and the game takes the body from here
+	fall(why) {
+		this.fallen = true;
+		this.falls++;
+		for (let limb = 0; limb < 4; limb++) this.drop(limb);
+		this.hint = why;
+	}
+
 	step(delta) {
+		if (this.fallen) return;
 		const face = this.routes[this.route];
 		const holds = this.holds();
 		const weight2D = face.down(this.position.y).mul(Spec.gravity * Spec.mass);
@@ -235,11 +256,31 @@ export class Sim {
 		}
 		// core tension squares the torso back up (or into the reaching twist); one-sided contact can still barn-door
 		let torque = clamp(-(this.angle - twist) * 180 - this.spin * 25, -90, 90);
+		// each limb's weight hangs where the limb is: a leg out to one side turns the body that way.
+		// a free leg flagged across to the side of the holds is a counterweight that stops a barn door
+		const pull = face.down(this.position.y).mul(Spec.gravity);
+		for (let limb = 0; limb < 4; limb++) {
+			const arm = this.joint(limb).add(this.tips[limb]).mul(0.5).sub(this.position);
+			torque += (arm.x * pull.y - arm.y * pull.x) * Body.masses[limb];
+		}
 		// hands that end up below the shoulder stop the legs from standing the hips up past them
 		let stretch = 0;
 		for (let limb = 2; limb < 4; limb++)
 			if (this.grips[limb] >= 0 && this.arrived(limb) && holds[this.grips[limb]].point.y < this.joint(limb).y)
 				stretch = Math.max(stretch, this.distance(limb, holds[this.grips[limb]].point) / (Body.lengths[limb] * 2));
+
+		// bare wall only grips by friction, so it needs something pressing the body into the wall: a slab leaning the body onto it,
+		// or hands on holds pulling the hips in (body tension). an overhang pulls the body off and eats that squeeze
+		let squeeze = Spec.mass * Spec.gravity * -face.steep(this.position.y);
+		let sharing = 0;
+		for (let limb = 0; limb < 4; limb++) {
+			if (!this.arrived(limb)) continue;
+			if (this.smeared[limb] && this.grips[limb] < 0) sharing += limb < 2 ? 2 : 1;
+			else if (limb >= 2 && this.grips[limb] >= 0)
+				squeeze += 380 * (Incut[holds[this.grips[limb]].kind] ?? 0.5) * (1 - 0.5 * this.pump[limb]) * (0.5 + 0.5 * this.latch[limb]);
+		}
+		this.squeeze = Math.max(0, squeeze);
+		const friction = (limb) => Friction[limb] * this.squeeze * (limb < 2 ? 2 : 1) / Math.max(sharing, 1);
 
 		const contacts = [];
 		let stance = new Vec2();
@@ -250,9 +291,13 @@ export class Sim {
 			const hold = press ? null : holds[this.grips[limb]];
 			const point = press ? this.posts[limb] : hold.point;
 			// legs are far stronger than arms; pump saps the arms; a smear only carries a fraction
-			const capacity = (limb < 2 ? 1100 : 700 * (1 - 0.4 * this.pump[limb])) * (press ? 0.35 : 1) * (0.5 + 0.5 * this.latch[limb]);
+			// a press can be loaded past what friction holds: it then skates off, gradually
+			let capacity = (limb < 2 ? 1100 : 700 * (1 - 0.4 * this.pump[limb])) * (0.5 + 0.5 * this.latch[limb]);
+			if (press) capacity = Math.min(capacity, friction(limb) * 1.3);
 			contacts.push({ limb, point, hold, press, capacity, applied: new Vec2() });
-			const vote = limb < 2 ? 2 : 1;
+			// a palm steadies the body but never decides where the hips go
+			const vote = limb < 2 ? 2 : press ? 0 : 1;
+			if (!vote) continue;
 			stance = stance.add(point.sub(this.turn(this.rest(limb))).mul(vote));
 			weight += vote;
 		}
@@ -262,7 +307,11 @@ export class Sim {
 			const away = this.joint(c.limb).sub(c.point).norm();
 			const extension = this.distance(c.limb, c.point) / (Body.lengths[c.limb] * 2);
 			const push = request.dot(away);
-			if (c.limb >= 2) {
+			if (c.press) {
+				// bare wall cannot be pulled on, only pushed against: a palm presses, a smear stands
+				if (push < 0) request = request.sub(away.mul(push));
+				else if (c.limb < 2) request = request.sub(away.mul(push * clamp((extension - 0.9) / 0.15, 0, 1)));
+			} else if (c.limb >= 2) {
 				// hands only pull, and a hand below its shoulder only steadies until the arm runs out of length
 				if (push > 0) request = request.sub(away.mul(push));
 				if (c.point.y < this.joint(c.limb).y && request.y < 0)
@@ -316,9 +365,11 @@ export class Sim {
 			const steep = face.steep(c.point.y);
 			const peel = steep > 0 ? 1 - steep * (limb < 2 ? 0.7 : 0.45) : 1 - steep * (limb < 2 ? 0.3 : 0);
 			// a fresh catch has not settled yet: the fingers are still finding the hold
-			const limit = grip * (0.5 + 0.5 * matchup) * (limb < 2 ? 1.45 : c.press ? 0.55 : 1) * (1 - 0.5 * this.pump[limb]) * peel * (0.45 + 0.55 * this.latch[limb]);
+			const limit = c.press ? friction(limb) * (0.45 + 0.55 * this.latch[limb])
+				: grip * (0.5 + 0.5 * matchup) * (limb < 2 ? 1.45 : 1) * (1 - 0.5 * this.pump[limb]) * peel * (0.45 + 0.55 * this.latch[limb]);
 			const effort = load.len() / Math.max(limit, 1);
 			this.strain[limb] = effort;
+			this.loads[limb] = load.len();
 			if (limb >= 2 && !c.press) {
 				// hard holds pump the forearm, a bent lock-off far faster than hanging off a straight arm; a relaxed hang slowly recovers
 				const bend = clamp((0.95 - this.distance(limb, c.point) / (Body.lengths[limb] * 2)) / 0.4, 0, 1);
@@ -329,8 +380,9 @@ export class Sim {
 			if (this.slips[limb] <= 0.25 && this.distance(limb, c.point) <= this.range(limb) * 1.15) continue;
 			this.drop(limb);
 			this.slips[limb] = 0;
-			this.hint = `${Names[limb]} slipped: adjust your weight`;
+			this.hint = c.press ? `${Names[limb]} skated off: bare wall needs weight pressing it in` : `${Names[limb]} slipped: adjust your weight`;
 		}
+		for (let limb = 0; limb < 4; limb++) if (!contacts.some(c => c.limb === limb)) this.loads[limb] = 0;
 
 		// a hand off the wall shakes out
 		for (let limb = 2; limb < 4; limb++)
@@ -339,11 +391,13 @@ export class Sim {
 		this.spin = (this.spin + torque / Body.inertia * delta) / (1 + delta * 6);
 		this.position = this.position.add(this.velocity.mul(delta));
 		this.angle += this.spin * delta;
-		if (this.position.y < 0.62) {
-			this.restart();
-			this.falls++;
-			this.hint = 'fell: try moving a foot before reaching';
-		}
+		// standing on feet alone only works on a low slab; anywhere steeper the body tips back off the wall
+		// a palm only steadies while something presses it into the wall
+		const steadied = [2, 3].some(l => this.arrived(l) && (this.grips[l] >= 0 || (this.smeared[l] && Friction[l] * this.squeeze > 120)));
+		this.tipping = steadied || face.steep(this.position.y) < -0.4 ? 0 : this.tipping + delta;
+		if (this.position.y < 0.62) this.fall('fell: try moving a foot before reaching');
+		else if (this.tipping > 0.35) this.fall('tipped off: keep a hand on before moving the other');
+		else if (Math.abs(this.angle) > 1.5) this.fall('barn-doored off: flag a leg or get a foot on that side');
 		const top = holds.length - 1;
 		// a send is both hands matched on the finish hold, held under control
 		this.topped = this.grips[2] === top && this.grips[3] === top && this.arrived(2) && this.arrived(3) ? this.topped + delta : 0;

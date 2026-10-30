@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#15151a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="description" content="rougarou: an indoor bouldering game at the rougarou rock lounge. move each hand and foot, shift your weight, send the problem.">
+<meta name="description" content="rougarou: an indoor bouldering game at the rougarou rock lounge. walk the gym, pull onto a problem, move each hand and foot, shift your weight, send it.">
 <title>rougarou</title>
 <style>
 	:root { --ink: #f3efe6; --dim: rgba(243, 239, 230, 0.68); --glass: rgba(16, 16, 20, 0.62); --tape: #f2a007; }
@@ -37,6 +37,12 @@
 	#sent .card { pointer-events: auto; text-align: center; padding: 20px 24px; display: grid; gap: 12px; }
 	#sent h2 { margin: 0; font-size: 34px; letter-spacing: 0.04em; color: var(--tape); }
 	#sent div { display: flex; gap: 8px; justify-content: center; }
+	.weight { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
+	.weight .bar { width: 30px; }
+	.weight .bar i { background: linear-gradient(90deg, #7fc8a9, #f2a007); }
+	#stick { position: fixed; width: 116px; height: 116px; margin: -58px 0 0 -58px; border-radius: 50%; border: 2px solid rgba(243, 239, 230, 0.35);
+		background: rgba(16, 16, 20, 0.25); pointer-events: none; }
+	#stick i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: rgba(243, 239, 230, 0.55); }
 	#loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--dim); font-weight: 700; letter-spacing: 0.06em; }
 	@media (max-width: 520px) {
 		body { font-size: 13px; }
@@ -53,19 +59,23 @@
 <div id="loading">setting the problems...</div>
 <div class="hud top">
 	<div class="card"><div id="route"></div><div id="status"></div></div>
-	<div class="card pump">pump <span>L</span><span class="bar"><i id="pumpL"></i></span><span>R</span><span class="bar"><i id="pumpR"></i></span></div>
+	<div class="card pump" id="pump">pump <span>L</span><span class="bar"><i id="pumpL"></i></span><span>R</span><span class="bar"><i id="pumpR"></i></span></div>
+	<div class="card weight" id="weight">weight <span>hands</span><span class="bar"><i id="load3"></i></span><span class="bar"><i id="load2"></i></span><span>feet</span><span class="bar"><i id="load1"></i></span><span class="bar"><i id="load0"></i></span></div>
 </div>
 <div id="tip" class="card"></div>
 <div class="hud bottom">
 	<button id="prev" aria-label="previous problem">&lsaquo;</button>
 	<button id="retry">retry</button>
+	<button id="pull" class="hot" hidden>pull on</button>
 	<button id="wide">gym</button>
 	<button id="back" class="hot" hidden>put back</button>
 	<button id="hang" hidden>let it hang</button>
+	<button id="drop" hidden>jump down</button>
 	<button id="next" aria-label="next problem">&rsaquo;</button>
-	<span class="card keys">wasd hips &middot; esc put back &middot; x hang &middot; r retry &middot; [ ] problem &middot; g gym</span>
+	<span class="card keys" id="keys"></span>
 </div>
-<div id="sent" hidden><div class="card"><h2>SENT!</h2><div><button id="again">again</button><button id="onward" class="hot">next problem</button></div></div></div>
+<div id="sent" hidden><div class="card"><h2>SENT!</h2><div><button id="again">again</button><button id="onward" class="hot">jump down</button></div></div></div>
+<div id="stick" hidden><i></i></div>
 <script type="module" src="./main.js"></script>
 </body>
 </html>

@@ -134,6 +134,10 @@ void FClimbSim::Restart()
 	Topped = 0;
 	Reaching = -1;
 	Goal = Position;
+	for (float& Load : Loads) Load = 0;
+	Squeeze = 0;
+	Tipping = 0;
+	Fallen = false;
 }
 
 bool FClimbSim::Grab(int32 Limb, int32 Hold)
@@ -169,7 +173,7 @@ bool FClimbSim::Smear(int32 Limb, FVector2D Point)
 	Posts[Limb] = Point;
 	Slips[Limb] = 0;
 	Latch[Limb] = -1;
-	Hint = FString::Printf(TEXT("%s pressed on the wall"), Names[Limb]);
+	Hint = Limb >= 2 ? FString::Printf(TEXT("%s palming the wall: balance, not a pull"), Names[Limb]) : FString::Printf(TEXT("%s smearing: it sticks as hard as you press it in"), Names[Limb]);
 	return true;
 }
 
@@ -181,8 +185,17 @@ void FClimbSim::Drop(int32 Limb)
 	Strain[Limb] = 0;
 }
 
+void FClimbSim::Fall(const TCHAR* Why)
+{
+	Fallen = true;
+	Falls++;
+	for (int32 Limb = 0; Limb < 4; Limb++) Drop(Limb);
+	Hint = Why;
+}
+
 void FClimbSim::Step(float Delta)
 {
+	if (Fallen) return;
 	const FClimbRoute& Face = Spec.Routes[Route];
 	const FVector2D Weight2D = Face.Down(Position.Y) * Spec.Gravity * Spec.Mass;
 	FVector2D Force = Lean * Spec.Shift + Weight2D;
@@ -226,6 +239,14 @@ void FClimbSim::Step(float Delta)
 	}
 	// core tension squares the torso back up (or into the reaching twist); one-sided contact can still overpower it and barn-door
 	float Torque = FMath::Clamp(-(Angle - Twist) * 180 - Spin * 25, -90.f, 90.f);
+	// each limb's weight hangs where the limb is: a leg out to one side turns the body that way.
+	// a free leg flagged across to the side of the holds is a counterweight that stops a barn door
+	const FVector2D Pull = Face.Down(Position.Y) * Spec.Gravity;
+	for (int32 Limb = 0; Limb < 4; Limb++)
+	{
+		const FVector2D Arm = (Joint(Limb) + Tips[Limb]) * 0.5f - Position;
+		Torque += (Arm.X * Pull.Y - Arm.Y * Pull.X) * Body.Masses[Limb];
+	}
 	// hands that end up below the shoulder stop the legs from standing the hips up past them
 	float Stretch = 0;
 	for (int32 Limb = 2; Limb < 4; Limb++)
@@ -241,6 +262,24 @@ void FClimbSim::Step(float Delta)
 		float Capacity;
 		FVector2D Applied;
 	};
+	// bare wall only grips by friction, so it needs something pressing the body into the wall: a slab leaning the body onto it,
+	// or hands on holds pulling the hips in (body tension). an overhang pulls the body off and eats that squeeze
+	float Squeezing = Spec.Mass * Spec.Gravity * -Face.Steep(Position.Y);
+	float Sharing = 0;
+	for (int32 Limb = 0; Limb < 4; Limb++)
+	{
+		if (!Arrived(Limb)) continue;
+		if (Smeared[Limb] && Grips[Limb] < 0) Sharing += Limb < 2 ? 2 : 1;
+		else if (Limb >= 2 && Grips[Limb] >= 0)
+		{
+			const FString& Kind = Holds()[Grips[Limb]].Kind;
+			const float Incut = Kind == TEXT("jug") ? 1 : Kind == TEXT("crimp") ? 0.55f : Kind == TEXT("pocket") ? 0.75f : Kind == TEXT("pinch") ? 0.85f : Kind == TEXT("sloper") ? 0.25f : 0.5f;
+			Squeezing += 380 * Incut * (1 - 0.5f * Pump[Limb]) * (0.5f + 0.5f * Latch[Limb]);
+		}
+	}
+	Squeeze = FMath::Max(0.f, Squeezing);
+	auto Friction = [&](int32 Limb) { return Body.Friction[Limb] * Squeeze * (Limb < 2 ? 2 : 1) / FMath::Max(Sharing, 1.f); };
+
 	TArray<FContact, TInlineAllocator<4>> Contacts;
 	FVector2D Stance = FVector2D::ZeroVector;
 	float Weight = 0;
@@ -250,11 +289,13 @@ void FClimbSim::Step(float Delta)
 		if ((Grips[Limb] < 0 && !Press) || !Arrived(Limb)) { Strain[Limb] = 0; continue; }
 		const FClimbHold* Hold = Press ? nullptr : &Holds()[Grips[Limb]];
 		const FVector2D Point = Press ? Posts[Limb] : Hold->Point;
-		// legs are far stronger than arms; pump saps the arms; a smear only carries a fraction
-		const float Strength = (Limb < 2 ? 1100 : 700 * (1 - 0.4f * Pump[Limb])) * (Press ? 0.35f : 1) * (0.5f + 0.5f * Latch[Limb]);
+		// legs are far stronger than arms; pump saps the arms. a press can be loaded past what friction holds: it then skates off, gradually
+		float Strength = (Limb < 2 ? 1100 : 700 * (1 - 0.4f * Pump[Limb])) * (0.5f + 0.5f * Latch[Limb]);
+		if (Press) Strength = FMath::Min(Strength, Friction(Limb) * 1.3f);
 		Contacts.Add({ Limb, Point, Hold, Press, Strength, FVector2D::ZeroVector });
-		// the stance the contacts hold the hips in; feet count double because the body stands on them
-		const float Vote = Limb < 2 ? 2 : 1;
+		// the stance the contacts hold the hips in; feet count double because the body stands on them, and a palm only steadies
+		const float Vote = Limb < 2 ? 2 : Press ? 0 : 1;
+		if (Vote == 0) continue;
 		Stance += (Point - Turn(Rest(Limb))) * Vote;
 		Weight += Vote;
 	}
@@ -265,7 +306,13 @@ void FClimbSim::Step(float Delta)
 		const FVector2D Away = (Joint(Contact.Limb) - Contact.Point).GetSafeNormal();
 		const float Extension = Distance(Contact.Limb, Contact.Point) / (Body.Lengths[Contact.Limb] * 2);
 		const float Push = FVector2D::DotProduct(Request, Away);
-		if (Contact.Limb >= 2)
+		if (Contact.Press)
+		{
+			// bare wall cannot be pulled on, only pushed against: a palm presses, a smear stands
+			if (Push < 0) Request -= Away * Push;
+			else if (Contact.Limb < 2) Request -= Away * Push * FMath::Clamp((Extension - 0.9f) / 0.15f, 0.f, 1.f);
+		}
+		else if (Contact.Limb >= 2)
 		{
 			// hands only pull, and a hand below its shoulder only steadies until the arm runs out of length
 			if (Push > 0) Request -= Away * Push;
@@ -330,9 +377,11 @@ void FClimbSim::Step(float Delta)
 		const float Steep = Face.Steep(Contact.Point.Y);
 		const float Peel = Steep > 0 ? 1 - Steep * (Limb < 2 ? 0.7f : 0.45f) : 1 - Steep * (Limb < 2 ? 0.3f : 0);
 		// a fresh catch has not settled yet: the fingers are still finding the hold
-		const float Limit = Grip * (0.5f + 0.5f * Matchup) * (Limb < 2 ? 1.45f : Contact.Press ? 0.55f : 1) * (1 - 0.5f * Pump[Limb]) * Peel * (0.45f + 0.55f * Latch[Limb]);
+		const float Limit = Contact.Press ? Friction(Limb) * (0.45f + 0.55f * Latch[Limb])
+			: Grip * (0.5f + 0.5f * Matchup) * (Limb < 2 ? 1.45f : 1) * (1 - 0.5f * Pump[Limb]) * Peel * (0.45f + 0.55f * Latch[Limb]);
 		const float Effort = Load.Size() / FMath::Max(Limit, 1.f);
 		Strain[Limb] = Effort;
+		Loads[Limb] = Load.Size();
 		if (Limb >= 2 && !Contact.Press)
 		{
 			// hard holds pump the forearm, a bent lock-off far faster than hanging off a straight arm; a relaxed hang slowly recovers
@@ -344,8 +393,10 @@ void FClimbSim::Step(float Delta)
 		if (Slips[Limb] <= 0.25f && Distance(Limb, Contact.Point) <= Range(Limb) * 1.15f) continue;
 		Drop(Limb);
 		Slips[Limb] = 0;
-		Hint = FString::Printf(TEXT("%s slipped: adjust your weight"), Names[Limb]);
+		Hint = Contact.Press ? FString::Printf(TEXT("%s skated off: bare wall needs weight pressing it in"), Names[Limb]) : FString::Printf(TEXT("%s slipped: adjust your weight"), Names[Limb]);
 	}
+	for (int32 Limb = 0; Limb < 4; Limb++)
+		if (!Contacts.ContainsByPredicate([Limb](const FContact& Contact) { return Contact.Limb == Limb; })) Loads[Limb] = 0;
 
 	// a hand off the wall shakes out
 	for (int32 Limb = 2; Limb < 4; Limb++)
@@ -356,12 +407,15 @@ void FClimbSim::Step(float Delta)
 	Spin /= 1 + Delta * 6;
 	Position += Velocity * Delta;
 	Angle += Spin * Delta;
-	if (Position.Y < 0.62f)
-	{
-		Restart();
-		Falls++;
-		Hint = TEXT("fell: try moving a foot before reaching");
-	}
+	// standing on feet alone only works on a low slab; anywhere steeper the body tips back off the wall.
+	// a palm only steadies while something presses it into the wall
+	bool Steadied = false;
+	for (int32 Limb = 2; Limb < 4; Limb++)
+		Steadied |= Arrived(Limb) && (Grips[Limb] >= 0 || (Smeared[Limb] && Body.Friction[Limb] * Squeeze > 120));
+	Tipping = Steadied || Face.Steep(Position.Y) < -0.4f ? 0 : Tipping + Delta;
+	if (Position.Y < 0.62f) Fall(TEXT("fell: try moving a foot before reaching"));
+	else if (Tipping > 0.35f) Fall(TEXT("tipped off: keep a hand on before moving the other"));
+	else if (FMath::Abs(Angle) > 1.5f) Fall(TEXT("barn-doored off: flag a leg or get a foot on that side"));
 	const int32 Top = Holds().Num() - 1;
 	// a send is both hands matched on the finish hold, held under control
 	Topped = Grips[2] == Top && Grips[3] == Top && Arrived(2) && Arrived(3) ? Topped + Delta : 0;
@@ -380,7 +434,9 @@ FClimbSim::FState FClimbSim::Save() const
 	FMemory::Memcpy(State.Latch, Latch, sizeof(Latch));
 	State.Goal = Goal;
 	State.Topped = Topped;
+	State.Tipping = Tipping;
 	State.Won = Won;
+	State.Fallen = Fallen;
 	return State;
 }
 
@@ -400,5 +456,7 @@ void FClimbSim::Load(const FState& State)
 	FMemory::Memcpy(Latch, State.Latch, sizeof(Latch));
 	Goal = State.Goal;
 	Topped = State.Topped;
+	Tipping = State.Tipping;
 	Won = State.Won;
+	Fallen = State.Fallen;
 }

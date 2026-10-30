@@ -26,22 +26,22 @@ export const toThree = (v) => [-v.y / 100, v.z / 100, v.x / 100];
 
 // a run of wall built like a real gym section: a height profile of flat angled panels extruded along the wall
 const Back = V(1, 0, 0), Left = V(0, 1, 0), Right = V(0, -1, 0);
-const Sections = [
-	{ problem: 'slab dance', moves: 'csjcps', top: 4.3, base: V(-60, -1500, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [-45, 200], [-110, 480]] },
-	{ problem: 'steep street', moves: 'jcjpjo', top: 4.6, base: V(-60, -900, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [30, 120], [200, 380], [250, 480]] },
-	{ problem: 'kicker', moves: 'cjspcj', top: 4.4, base: V(-60, -300, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [0, 170], [110, 430], [120, 480]] },
-	{ problem: 'the roof', moves: 'jjpj', top: 3.5, base: V(-60, 300, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [40, 140], [230, 300], [380, 380]] },
-	{ problem: 'wave', moves: 'jcsjpc', top: 4.6, base: V(-60, 900, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [90, 170], [40, 320], [130, 480]] },
+export const Sections = [
+	{ problem: 'slab dance', grade: 'V2', moves: 'csjcps', top: 4.3, base: V(-60, -1500, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [-45, 200], [-110, 480]] },
+	{ problem: 'steep street', grade: 'V4', moves: 'jcjpjo', top: 4.6, base: V(-60, -900, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [30, 120], [200, 380], [250, 480]] },
+	{ problem: 'kicker', grade: 'V3', moves: 'cjspcj', top: 4.4, base: V(-60, -300, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [0, 170], [110, 430], [120, 480]] },
+	{ problem: 'the roof', grade: 'V5', moves: 'jjpj', top: 3.5, base: V(-60, 300, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [40, 140], [230, 300], [380, 380]] },
+	{ problem: 'wave', grade: 'V3', moves: 'jcsjpc', top: 4.6, base: V(-60, 900, 0), along: V(0, 1, 0), into: Back, width: 600, profile: [[0, 0], [90, 170], [40, 320], [130, 480]] },
 	{ problem: null, base: V(-60, -1500, 0), along: V(1, 0, 0), into: Left, width: 510, profile: [[0, 0], [0, 260], [-40, 480]] },
-	{ problem: 'lean', moves: 'jcjoj', top: 4.4, base: V(450, -1500, 0), along: V(1, 0, 0), into: Left, width: 500, profile: [[0, 0], [60, 150], [180, 480]] },
-	{ problem: 'pour', moves: 'jpjcjj', top: 4.2, base: V(-60, 1500, 0), along: V(1, 0, 0), into: Right, width: 560, profile: [[0, 0], [50, 160], [200, 480]] },
+	{ problem: 'lean', grade: 'V2', moves: 'jcjoj', top: 4.4, base: V(450, -1500, 0), along: V(1, 0, 0), into: Left, width: 500, profile: [[0, 0], [60, 150], [180, 480]] },
+	{ problem: 'pour', grade: 'V1', moves: 'jpjcjj', top: 4.2, base: V(-60, 1500, 0), along: V(1, 0, 0), into: Right, width: 560, profile: [[0, 0], [50, 160], [200, 480]] },
 	{ problem: null, base: V(500, 1500, 0), along: V(1, 0, 0), into: Right, width: 550, profile: [[0, 0], [-30, 250], [-70, 480]] },
 ].map(s => ({ ...s, profile: s.profile.map(([a, b]) => new Vec2(a, b)) }));
 
 // the arch boulder: a faceted cross-section extruded along the room, a thick outer skin around a cave tunnel
-const ArchStart = 900, ArchLength = 1100, ArchCenter = 250;
-const ArchOuter = [[-560, 0], [-470, 230], [-260, 470], [180, 500], [430, 330], [560, 0]].map(([a, b]) => new Vec2(a, b));
-const ArchInner = [[-300, 0], [-270, 170], [-120, 280], [110, 290], [250, 190], [300, 0]].map(([a, b]) => new Vec2(a, b));
+export const ArchStart = 900, ArchLength = 1100, ArchCenter = 250;
+export const ArchOuter = [[-560, 0], [-470, 230], [-260, 470], [180, 500], [430, 330], [560, 0]].map(([a, b]) => new Vec2(a, b));
+export const ArchInner = [[-300, 0], [-270, 170], [-120, 280], [110, 290], [250, 190], [300, 0]].map(([a, b]) => new Vec2(a, b));
 
 function archSection(u, inner) {
 	const points = inner ? ArchInner : ArchOuter;
@@ -102,6 +102,7 @@ export function problems() {
 		const route = new Route(s.problem);
 		route.panels = stack(corners, s.along, s.into);
 		route.holds = ladder(s.moves, s.top, seed++);
+		route.grade = s.grade;
 		out.push(route);
 	}
 	const middle = ArchStart + ArchLength / 2;
@@ -109,10 +110,12 @@ export function problems() {
 	const leg = new Route('arch leg');
 	leg.panels = stack([corner(ArchOuter[0]), corner(ArchOuter[1]), corner(ArchOuter[2])], V(1, 0, 0), V(0, -1, 0));
 	leg.holds = ladder('jcjsjc', 4.9, seed++);
+	leg.grade = 'V1';
 	out.push(leg);
 	const cave = new Route('arch cave');
 	cave.panels = stack([corner(ArchInner[5]), corner(ArchInner[4]), corner(ArchInner[3])], V(1, 0, 0), V(0, -1, 0));
 	cave.holds = ladder('jjjj', 2.95, seed++);
+	cave.grade = 'V2';
 	cave.stand = 200;
 	cave.aside = 420;
 	out.push(cave);
@@ -338,6 +341,8 @@ export function buildGym(routes) {
 	const steel = [0.04, 0.04, 0.045];
 	for (let x = 100; x < 2450; x += 200)
 		for (let y = -1450; y < 1500; y += 100) block(V(x, y, 14), V(196, 97, 28), [0.03, 0.03, 0.035]);
+	// a row of narrow pads tight against the back wall, so nobody lands on bare concrete
+	for (let y = -1450; y < 1500; y += 100) block(V(-29, y, 14), V(58, 97, 28), [0.03, 0.03, 0.035]);
 	block(V(1150, 0, -5), V(2950, 3400, 10), [0.25, 0.25, 0.25], false);
 	const siding = [0.6, 0.6, 0.58];
 	block(V(-300, 0, 450), V(20, 3500, 900), siding, false);

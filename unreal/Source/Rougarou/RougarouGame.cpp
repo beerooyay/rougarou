@@ -160,6 +160,7 @@ void ARougarouController::PlayerTick(float Delta)
 	FVector2D Point;
 	bool Over = Cursor(Point);
 	// a fall restarts the climb underneath us; whatever limb was lifted is gone with it
+	if (Sim.Fallen) { const FString Why = Sim.Hint; Sim.Restart(); Sim.Hint = Why; }
 	if (Sim.Falls != Falls) { Falls = Sim.Falls; Limb = -1; }
 	// -shot -lift: scripted left-hand move, to check reaching and placing without a person at the mouse
 	if (Shooting && FParse::Param(FCommandLine::Get(), TEXT("lift")))

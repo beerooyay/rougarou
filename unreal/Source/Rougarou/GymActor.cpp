@@ -324,6 +324,9 @@ void AGymActor::Shell()
 	for (float X = 100; X < 2450; X += 200)
 		for (float Y = -1450; Y < 1500; Y += 100)
 			Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->AddInstance(FTransform(FRotator::ZeroRotator, FVector(X, Y, 14), FVector(1.96f, 0.97f, 0.28f)));
+	// a row of narrow pads tight against the back wall, so nobody lands on bare concrete
+	for (float Y = -1450; Y < 1500; Y += 100)
+		Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->AddInstance(FTransform(FRotator::ZeroRotator, FVector(-29, Y, 14), FVector(0.58f, 0.97f, 0.28f)));
 	Block(FVector(1150, 0, -5), FVector(2950, 3400, 10), FLinearColor(0.25f, 0.25f, 0.25f), false);
 	// the steel building: shell walls, insulated ceiling, beams, purlins. none of it casts shadow, or the roof would black out the key light
 	const FLinearColor Siding(0.6f, 0.6f, 0.58f);
