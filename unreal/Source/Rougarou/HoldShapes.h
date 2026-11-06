@@ -2,10 +2,10 @@
 
 #include "CoreMinimal.h"
 
-// a library of sculpted low-poly climbing holds, baked straight into merged meshes so hundreds stay cheap.
+// a library of sculpted climbing holds, baked straight into merged meshes so hundreds stay cheap.
 // hold space: x points up the wall (the side you pull toward), y across, z out of the wall; centimeters.
 
-// triangles with flat normals, ready for a procedural mesh section
+// merged geometry for a procedural mesh section
 struct FMeshSink
 {
 	TArray<FVector> Vertices;
@@ -74,7 +74,7 @@ inline int32 PickTemplate(const FString& Kind, int32 Seed)
 	return Matches.Num() ? Matches[FMath::Abs(Seed) % Matches.Num()] : 0;
 }
 
-// a once-subdivided icosahedron: 80 faces, enough for a faceted hand-shaped hold
+// Three subdivisions keep the silhouettes rounded even at climbing distance.
 inline void Icosphere(TArray<FVector>& Points, TArray<FIntVector>& Faces)
 {
 	const float T = (1 + FMath::Sqrt(5.f)) / 2;
@@ -82,21 +82,26 @@ inline void Icosphere(TArray<FVector>& Points, TArray<FIntVector>& Faces)
 	TArray<FIntVector> Base = { { 0, 11, 5 }, { 0, 5, 1 }, { 0, 1, 7 }, { 0, 7, 10 }, { 0, 10, 11 }, { 1, 5, 9 }, { 5, 11, 4 }, { 11, 10, 2 }, { 10, 7, 6 }, { 7, 1, 8 },
 		{ 3, 9, 4 }, { 3, 4, 2 }, { 3, 2, 6 }, { 3, 6, 8 }, { 3, 8, 9 }, { 4, 9, 5 }, { 2, 4, 11 }, { 6, 2, 10 }, { 8, 6, 7 }, { 9, 8, 1 } };
 	for (FVector& Point : Points) Point.Normalize();
-	TMap<uint64, int32> Middles;
-	auto Middle = [&](int32 A, int32 B)
+	for (int32 Level = 0; Level < 3; ++Level)
 	{
-		const uint64 Key = (uint64(FMath::Min(A, B)) << 32) | uint64(FMath::Max(A, B));
-		if (const int32* Found = Middles.Find(Key)) return *Found;
-		const int32 Index = Points.Add(((Points[A] + Points[B]) / 2).GetSafeNormal());
-		Middles.Add(Key, Index);
-		return Index;
-	};
-	Faces.Reset();
-	for (const FIntVector& Face : Base)
-	{
-		const int32 AB = Middle(Face.X, Face.Y), BC = Middle(Face.Y, Face.Z), CA = Middle(Face.Z, Face.X);
-		Faces.Append({ { Face.X, AB, CA }, { Face.Y, BC, AB }, { Face.Z, CA, BC }, { AB, BC, CA } });
+		TMap<uint64, int32> Middles;
+		auto Middle = [&](int32 A, int32 B)
+		{
+			const uint64 Key = (uint64(FMath::Min(A, B)) << 32) | uint64(FMath::Max(A, B));
+			if (const int32* Found = Middles.Find(Key)) return *Found;
+			const int32 Index = Points.Add(((Points[A] + Points[B]) / 2).GetSafeNormal());
+			Middles.Add(Key, Index);
+			return Index;
+		};
+		Faces.Reset();
+		for (const FIntVector& Face : Base)
+		{
+			const int32 AB = Middle(Face.X, Face.Y), BC = Middle(Face.Y, Face.Z), CA = Middle(Face.Z, Face.X);
+			Faces.Append({ { Face.X, AB, CA }, { Face.Y, BC, AB }, { Face.Z, CA, BC }, { AB, BC, CA } });
+		}
+		Swap(Base, Faces);
 	}
+	Swap(Base, Faces);
 }
 
 // bake one hold into the sinks. Where maps hold space onto the wall; Size is the nominal size in centimeters
@@ -139,15 +144,43 @@ inline void BuildHold(int32 Template, float Size, const FTransform& Where, int32
 		return;
 	}
 
-	static TArray<FVector> Unit;
-	static TArray<FIntVector> Faces;
-	if (Unit.Num() == 0) Icosphere(Unit, Faces);
-	TArray<FVector> Points;
-	for (const FVector& Point : Unit)
+	struct FVisibleSphere
 	{
-		// the front half of a sphere, flattened against the wall, sculpted, then roughed up
+		TArray<FVector> Points;
+		TArray<FIntVector> Faces;
+		int32 Pole = 0;
+	};
+	static const FVisibleSphere Sphere = []
+	{
+		TArray<FVector> Points;
+		TArray<FIntVector> Faces;
+		Icosphere(Points, Faces);
+		FVisibleSphere Result;
+		TArray<int32> Remap;
+		Remap.Init(INDEX_NONE, Points.Num());
+		auto AddPoint = [&](int32 Index)
+		{
+			int32& Mapped = Remap[Index];
+			if (Mapped == INDEX_NONE)
+			{
+				Mapped = Result.Points.Add(Points[Index]);
+				if (Result.Points[Mapped].Z > Result.Points[Result.Pole].Z)
+					Result.Pole = Mapped;
+			}
+			return Mapped;
+		};
+		for (const FIntVector& Face : Faces)
+		{
+			if (Points[Face.X].Z <= 0 && Points[Face.Y].Z <= 0 && Points[Face.Z].Z <= 0) continue;
+			Result.Faces.Add({AddPoint(Face.X), AddPoint(Face.Y), AddPoint(Face.Z)});
+		}
+		return Result;
+	}();
+	const int32 First = Body.Vertices.Num();
+	const FVector Phase(Dice.FRand() * 20, Dice.FRand() * 20, Dice.FRand() * 20);
+	for (const FVector& Point : Sphere.Points)
+	{
 		FVector Local(Point.X, Point.Y, FMath::Max(Point.Z, 0.f));
-		const float Theta = FMath::Atan2(Local.Y, Local.X);
 		switch (Hold.Shape)
 		{
 		case FHoldTemplate::Lip:
@@ -166,7 +199,12 @@ inline void BuildHold(int32 Template, float Size, const FTransform& Where, int32
 			break;
 		case FHoldTemplate::Star:
 			// three lobes, like the rounded triangles all over the photos
-			Local *= FVector(1 + 0.3f * FMath::Cos(3 * Theta), 1 + 0.3f * FMath::Cos(3 * Theta), 1);
+			{
+				const float Theta = FMath::Atan2(Local.Y, Local.X);
+				const float Lobe = 1 + 0.3f * (1 - Local.Z * Local.Z) * FMath::Cos(3 * Theta);
+				Local.X *= Lobe;
+				Local.Y *= Lobe;
+			}
 			break;
 		case FHoldTemplate::Pocket:
 			// a dished front: the hole itself is drawn dark
@@ -175,24 +213,42 @@ inline void BuildHold(int32 Template, float Size, const FTransform& Where, int32
 		default:
 			break;
 		}
-		Local += FVector(Dice.FRandRange(-1, 1), Dice.FRandRange(-1, 1), Dice.FRandRange(0, 1)) * Hold.Noise;
-		Points.Add(Place(Local * Scale));
+		// Low-frequency variation shapes the casting without disrupting the surface normals.
+		Local *= 1 + Hold.Noise * FMath::PerlinNoise3D(Point * 2 + Phase);
+		Body.Vertices.Add(Place(Local * Scale));
+		Body.Normals.Add(FVector::ZeroVector);
 	}
-	const FVector Center = Place(FVector(0, 0, Scale.Z * 0.3f));
-	for (const FIntVector& Face : Faces)
+	for (const FIntVector& Face : Sphere.Faces)
 	{
-		// skip the hidden back faces flattened into the wall
-		if (Unit[Face.X].Z < 0 && Unit[Face.Y].Z < 0 && Unit[Face.Z].Z < 0) continue;
-		const FVector Mid = (Points[Face.X] + Points[Face.Y] + Points[Face.Z]) / 3;
-		Body.Add(Points[Face.X], Points[Face.Y], Points[Face.Z], Mid - Center);
+		const int32 A = First + Face.X, B = First + Face.Y, C = First + Face.Z;
+		const FVector Normal = (Body.Vertices[B] - Body.Vertices[A]) ^ (Body.Vertices[C] - Body.Vertices[A]);
+		Body.Triangles.Append({ A, C, B });
+		Body.Normals[A] += Normal;
+		Body.Normals[B] += Normal;
+		Body.Normals[C] += Normal;
 	}
+	for (int32 Index = First; Index < Body.Normals.Num(); ++Index)
+		Body.Normals[Index] = Body.Normals[Index].GetSafeNormal(UE_SMALL_NUMBER, Out);
+	// Corey's mounting detail, seated on the actual sculpted surface.
+	if (Hold.Shape != FHoldTemplate::Pocket)
+	{
+		const FVector CenterBolt=Body.Vertices[First+Sphere.Pole]+Out*.12f;
+		for(int32 I=0;I<16;++I)
+		{
+			const float A=2*PI*I/16,B=2*PI*(I+1)/16;
+			const FVector P=CenterBolt+Where.TransformVectorNoScale(FVector(FMath::Cos(A)*.7,FMath::Sin(A)*.7,0));
+			const FVector Q=CenterBolt+Where.TransformVectorNoScale(FVector(FMath::Cos(B)*.7,FMath::Sin(B)*.7,0));
+			Dark.Add(CenterBolt,P,Q,Out);
+		}
+	}
+
 	if (Hold.Shape == FHoldTemplate::Pocket)
 	{
 		// the dark finger hole: a shallow cone sunk into the dish
 		const FVector Bottom = Place(FVector(0, 0, Scale.Z * 0.2f));
-		for (int32 Step = 0; Step < 8; Step++)
+		for (int32 Step = 0; Step < 32; Step++)
 		{
-			const float A0 = 2 * PI * Step / 8, A1 = 2 * PI * (Step + 1) / 8;
+			const float A0 = 2 * PI * Step / 32, A1 = 2 * PI * (Step + 1) / 32;
 			const FVector P0 = Place(FVector(FMath::Cos(A0) * Scale.X * 0.38f, FMath::Sin(A0) * Scale.Y * 0.38f, Scale.Z * 0.62f));
 			const FVector P1 = Place(FVector(FMath::Cos(A1) * Scale.X * 0.38f, FMath::Sin(A1) * Scale.Y * 0.38f, Scale.Z * 0.62f));
 			Dark.Add(P0, P1, Bottom, Out);

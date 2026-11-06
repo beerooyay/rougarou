@@ -1,6 +1,11 @@
 #include "ClimberActor.h"
+#include "Misc/ScopeExit.h"
 
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "Rig.h"
+#include "LocomotionAnim.h"
 #include "GymActor.h"
 #include "DrawDebugHelpers.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -10,6 +15,11 @@ AClimberActor::AClimberActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Wall"));
+	Walker = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Walker"));
+	Walker->SetupAttachment(RootComponent);
+	Walker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Walker->SetVisibility(false);
+ Walker->AddTickPrerequisiteActor(this);
 }
 
 void AClimberActor::BeginPlay()
@@ -27,6 +37,20 @@ void AClimberActor::BeginPlay()
 	FParse::Value(FCommandLine::Get(), TEXT("route="), Route);
 	Sim.Route = FMath::Clamp(Route, 0, Sim.Spec.Routes.Num() - 1);
 	Sim.Restart();
+	USkeletalMesh* Mesh = FParse::Param(FCommandLine::Get(), TEXT("mannequin"))
+		? nullptr : ULocomotionAnim::LoadPlayerMesh();
+	Walker->SetVisibility(false);
+	if (Mesh)
+	{
+		const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+		const TCHAR* Names[] = { TEXT("Hips"), TEXT("Spine2"), TEXT("RightArm"), TEXT("LeftArm"), TEXT("RightForeArm"), TEXT("LeftForeArm"),
+			TEXT("RightHand"), TEXT("LeftHand"), TEXT("RightUpLeg"), TEXT("LeftUpLeg"), TEXT("RightLeg"), TEXT("LeftLeg"),
+			TEXT("RightFoot"), TEXT("LeftFoot"), TEXT("RightToeBase"), TEXT("LeftToeBase"), TEXT("RightHandMiddle1"), TEXT("LeftHandMiddle1") };
+		Rigged = true;
+		for (const TCHAR* Name : Names) Rigged &= Ref.FindBoneIndex(FName(Name)) != INDEX_NONE;
+		if (Rigged) Rigged = HumanRig.Initialize(Ref,FHumanRig::ProfilePath());
+		if (Rigged) { Walker->SetSkeletalMesh(Mesh); Walker->SetAnimInstanceClass(ULocomotionAnim::StaticClass()); }
+	}
 	Rebuild();
 }
 
@@ -47,11 +71,17 @@ UStaticMeshComponent* AClimberActor::Shape(const TCHAR* Mesh, FVector Location, 
 
 void AClimberActor::Rebuild()
 {
-	// the gym draws every problem's holds; the climber only carries its own body, placed straight in gym space
-	for (UStaticMeshComponent* Part : Parts) if (Part) Part->DestroyComponent();
-	Parts.Reset();
-	SetActorTransform(FTransform::Identity);
-	Dress();
+	HumanRig.Reset();
+	Banked = 0;
+	HasLast = false;
+	if (Rigged)
+	{
+		Walker->ForceClothNextUpdateTeleportAndReset();
+	}
+	else if (Parts.IsEmpty())
+	{
+		Dress();
+	}
 }
 
 void AClimberActor::Dress()
@@ -142,17 +172,118 @@ FVector AClimberActor::Place(FVector2D Point, float Depth) const
 	return Sim.Spec.Routes[Sim.Route].Map(Point, Depth);
 }
 
+void AClimberActor::SetInside(bool Inside)
+{
+	if (!Rigged || HeadHidden == Inside) return;
+	HeadHidden = Inside;
+	if(Inside) Walker->HideBoneByName(TEXT("Head"),EPhysBodyOp::PBO_None);
+	else Walker->UnHideBoneByName(TEXT("Head"));
+	Walker->SetCastShadow(!Inside);
+}
+
+void AClimberActor::Walk(FVector At, float Yaw, float Speed)
+{
+	if (!Rigged || !Walker) return;
+	Walker->SetVisibility(true);
+	Walker->SetWorldLocationAndRotation(At, FRotator(0, FMath::RadiansToDegrees(Yaw) - 90, 0));
+	Eye=Walker->GetBoneLocation(TEXT("Head"))+FVector::UpVector*12;
+ const auto& Ref=Walker->GetSkeletalMeshAsset()->GetRefSkeleton();
+ const int32 Eyes=Ref.FindBoneIndex(TEXT("PlayerEyes"));
+ if(Eyes>=0)
+ {
+  const FTransform Head=Walker->GetSocketTransform(TEXT("Head"),RTS_World);
+  const FVector Offset=Ref.GetRefBonePose()[Eyes].GetTranslation()*Ref.GetRefBonePose()[0].GetScale3D().X;
+  Eye=Head.GetLocation()+Head.GetRotation().RotateVector(Offset);
+ }
+	if (ULocomotionAnim* Anim = Cast<ULocomotionAnim>(Walker->GetAnimInstance()))
+	{
+		Anim->Climbing=false;
+        Anim->GroundSpeed = Speed;
+		Anim->ClothEnabled=ClothEnabled;
+	}
+}
+
+void AClimberActor::Pose()
+{
+	// long legs keep the hips in close and a high step pushes them out; straight arms on steep ground let the chest hang back
+	const float Ease = FMath::Min(1.f, GetWorld()->GetDeltaSeconds() * 5);
+	auto On = [&](int32 L) { return (Sim.Grips[L] >= 0 || Sim.Smeared[L]) && Sim.Arrived(L); };
+	float FootY = 0; int32 Feet = 0;
+	for (int32 L = 0; L < 2; L++) if (On(L)) { FootY += Sim.Tips[L].Y; Feet++; }
+	FootY = Feet ? FootY / Feet : Sim.Position.Y - 1;
+	const float Compress = FMath::Clamp(1 - (Sim.Position.Y - FootY) / .75f, 0.f, 1.f);
+	float Hang = 0;
+	for (int32 L = 2; L < 4; L++) if (On(L) && Sim.Grips[L] >= 0) Hang = FMath::Max(Hang, Sim.Distance(L, Sim.Tips[L]) / (Sim.Body.Lengths[L] * 2));
+	const float Straight = FMath::Clamp((Hang - .75f) / .2f, 0.f, 1.f);
+	const float Steep = FMath::Max(0.f, Sim.Spec.Routes[Sim.Route].Steep(Sim.Position.Y));
+	HipDepth += (16 + 22 * Compress + 10 * Steep * Straight - HipDepth) * Ease;
+	ChestDepth += (20 + 10 * Straight + 6 * Steep - ChestDepth) * Ease;
+	const FHumanGoals Goals = FHumanGoals::FromSim(Sim, Gap, FirstPersonAmount, HipDepth, ChestDepth);
+	FHumanPose Pose = HumanRig.Solve(Goals, GetWorld()->GetDeltaSeconds());
+	Eye = Pose.Eye;
+	Walker->SetWorldTransform(Pose.World);
+	if (auto* Anim = Cast<ULocomotionAnim>(Walker->GetAnimInstance()))
+	{
+		Anim->Climbing = true;
+		Anim->ClimbingPose = MoveTemp(Pose.Local);
+		Anim->ClothEnabled = ClothEnabled;
+	}
+
+}
+
 void AClimberActor::Tick(float Delta)
 {
 	Super::Tick(Delta);
+	const bool SuspendCloth = Paused;
+	if (Rigged && Walker->GetSkeletalMeshAsset()->HasActiveClothingAssets())
+	{
+		Walker->bDisableClothSimulation = !ClothEnabled;
+		Walker->ClothBlendWeight = ClothEnabled ? 1.f : 0.f;
+		if (SuspendCloth != Walker->IsClothingSimulationSuspended())
+		{
+			if (SuspendCloth) Walker->SuspendClothingSimulation();
+			else Walker->ResumeClothingSimulation();
+		}
+	}
+	if (Paused) return;
+	if (Walking) return;
+	Walker->SetVisibility(Rigged);
 	// fixed 60 hz steps so the feel matches the unity and godot prototypes
 	Banked = FMath::Min(Banked + Delta, 0.25f);
+	FVector2D FromPosition = Sim.Position, FromTips[4];
+	float FromAngle = Sim.Angle;
+	bool Stepped = false;
 	while (Banked >= 1.f / 60)
 	{
+		FromPosition = Sim.Position;
+		FromAngle = Sim.Angle;
+		for (int32 L = 0; L < 4; L++) FromTips[L] = Sim.Tips[L];
 		Sim.Step(1.f / 60);
 		Banked -= 1.f / 60;
+		Stepped = true;
 	}
-	Draw();
+	// draw between the last two steps so motion stays even when the display runs faster than the sim
+	if (Stepped) { LastPosition = FromPosition; LastAngle = FromAngle; for (int32 L = 0; L < 4; L++) LastTips[L] = FromTips[L]; HasLast = true; }
+	const FVector2D NowPosition = Sim.Position, NowTips[4] = {Sim.Tips[0], Sim.Tips[1], Sim.Tips[2], Sim.Tips[3]};
+	const float NowAngle = Sim.Angle;
+	// a restart or big jump teleports, so it is drawn as is
+	const bool Blend = HasLast && !Sim.Fallen && FVector2D::Distance(LastPosition, NowPosition) < .5f;
+	if (Blend)
+	{
+		const float T = Banked * 60;
+		Sim.Position = FMath::Lerp(LastPosition, NowPosition, T);
+		Sim.Angle = FMath::Lerp(LastAngle, NowAngle, T);
+		for (int32 L = 0; L < 4; L++) Sim.Tips[L] = FMath::Lerp(LastTips[L], NowTips[L], T);
+	}
+	ON_SCOPE_EXIT { Sim.Position = NowPosition; Sim.Angle = NowAngle; for (int32 L = 0; L < 4; L++) Sim.Tips[L] = NowTips[L]; };
+	if (Rigged)
+	{
+		Pose();
+		if (Selected >= 0 && Selected < 4)
+			DrawDebugSphere(GetWorld(), Place(Sim.Tips[Selected], Sim.Arrived(Selected) ? 3 : Gap * .5f),
+				12, 10, FColor(255, 230, 64), false, -1, 0, 2);
+	}
+	else Draw();
 }
 
 void AClimberActor::Draw()
@@ -165,7 +296,7 @@ void AClimberActor::Draw()
 	auto At = [&](FVector2D Point, float Depth) { return Face.Map(Point, Depth); };
 	const FClimbPanel& Frame = Face.At(Sim.Position.Y);
 	FVector Roots[4];
-	for (int32 Limb = 0; Limb < 4; Limb++) Roots[Limb] = At(Sim.Joint(Limb), Gap - 8);
+	for (int32 Limb = 0; Limb < 4; Limb++) Roots[Limb] = At(Sim.Joint(Limb), Gap - 8 + FirstPersonAmount*(Limb<2?30:26));
 	const FVector Pelvis = (Roots[0] + Roots[1]) / 2;
 	const FVector Chest = (Roots[2] + Roots[3]) / 2;
 	const FVector Up = (Chest - Pelvis).GetSafeNormal();
@@ -213,7 +344,7 @@ void AClimberActor::Draw()
 		{
 			// a climbing shoe: toe on the hold, heel out from the wall and a little low, the ankle above the heel
 			const FVector Toe = Contact;
-			const FVector Ankle = Toe + Panel.Out * 14 + Panel.Up * 7;
+			const FVector Ankle = Toe + Panel.Out * 13 + Panel.Up * 3;
 			const FVector Heel = Toe + Panel.Out * 19 - Panel.Up * 1.5f;
 			End = Ankle;
 			Orient(Figure[4 + Limb * 4 + 3], (Toe + Heel) / 2 + Panel.Up * 2, Toe - Heel, Panel.Up, FVector(25, 9.5f, 9));

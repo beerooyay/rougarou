@@ -1,0 +1,9 @@
+{
+  "head_scale": 0.96,
+  "neck_lowering_cm": 4.0,
+  "trap_lowering_cm": 5.0,
+  "expected_height_cm": 175.58,
+  "chest_in_cm": 0.6,
+  "waist_ease_cm": 0.8,
+  "release_shirt_hem": true
+}

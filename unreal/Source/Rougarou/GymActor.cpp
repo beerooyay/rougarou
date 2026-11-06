@@ -55,6 +55,67 @@ static const float ArchStart = 900, ArchLength = 1100, ArchCenter = 250;
 static const FVector2D ArchOuter[] = { { -560, 0 }, { -470, 230 }, { -260, 470 }, { 180, 500 }, { 430, 330 }, { 560, 0 } };
 static const FVector2D ArchInner[] = { { -300, 0 }, { -270, 170 }, { -120, 280 }, { 110, 290 }, { 250, 190 }, { 300, 0 } };
 
+// Same standing-body collision samples as web/world.js. Keep these tied to
+// wall profiles, not the decorative triangulation and hold meshes.
+static TArray<FBox> WalkerBoxes;
+bool AGymActor::WalkerBlocked(FVector At)
+{
+ const float Floor = At.X > -58 && At.X < 2548 && FMath::Abs(At.Y)<1498 ? 28 : 0;
+ for (float Height : {35.f,100.f,165.f})
+ {
+  const FVector P(At.X,At.Y,Floor+Height);
+  for (const FWallSection& S : WallSections())
+  {
+   const FVector Rel=P-S.Base;
+   const float Along=FVector::DotProduct(Rel,S.Along);
+   if(Along < -22 || Along > S.Width+22) continue;
+   for(int32 I=0;I+1<S.Profile.Num();I++)
+   {
+    const FVector2D A=S.Profile[I],B=S.Profile[I+1];
+    if(P.Z<A.Y || P.Z>B.Y) continue;
+    const float Wall=FMath::Lerp(A.X,B.X,(P.Z-A.Y)/FMath::Max(B.Y-A.Y,.001));
+    const float D=FVector::DotProduct(Rel,S.Into);
+    if(D<Wall+22 && D>Wall-150) return true;
+   }
+  }
+  if(P.X>ArchStart-22 && P.X<ArchStart+ArchLength+22)
+  {
+   auto Span=[&](const FVector2D* Points,float& Lo,float& Hi)
+   {
+    Lo=MAX_flt;Hi=-MAX_flt;
+    for(int32 I=0;I<5;I++)
+    {
+     const FVector2D A=Points[I],B=Points[I+1];
+     if(A.Y==B.Y || (P.Z-A.Y)*(P.Z-B.Y)>0)continue;
+     const float X=FMath::Lerp(A.X,B.X,(P.Z-A.Y)/(B.Y-A.Y));
+     Lo=FMath::Min(Lo,X);Hi=FMath::Max(Hi,X);
+    }
+   };
+   float Lo,Hi,InnerLo,InnerHi;Span(ArchOuter,Lo,Hi);Span(ArchInner,InnerLo,InnerHi);
+   const float Y=P.Y-ArchCenter;
+   if(Lo<=Hi && Y>Lo-22 && Y<Hi+22 && (InnerLo>InnerHi || Y<InnerLo+22 || Y>InnerHi-22)) return true;
+  }
+  for(const FBox& Box:WalkerBoxes) if(Box.ExpandBy(22).IsInside(P))return true;
+ }
+ return At.X < -270 || At.X > 2520 || FMath::Abs(At.Y)>1618;
+}
+FVector AGymActor::MoveWalker(FVector From,FVector Step)
+{
+ for(FVector Slide : {Step,FVector(Step.X,0,0),FVector(0,Step.Y,0)})
+ {
+  FVector To=From+Slide;
+  if(!WalkerBlocked(To)) { To.Z=To.X>-58 && To.X<2548 && FMath::Abs(To.Y)<1498 ? 28 : 0;return To; }
+ }
+ return From;
+}
+FVector AGymActor::ClearWalker(FVector At,FVector Direction)
+{
+ Direction.Z=0;Direction.Normalize();
+ for(int32 I=0;I<100 && WalkerBlocked(At);I++)At+=Direction*5;
+ At.Z=At.X>-58 && At.X<2548 && FMath::Abs(At.Y)<1498?28:0;
+ return At;
+}
+
 static FVector2D ArchSection(float U, bool Inner)
 {
 	const FVector2D* Points = Inner ? ArchInner : ArchOuter;
@@ -122,7 +183,50 @@ static TArray<FClimbHold> Ladder(const TCHAR* Moves, float Top, int32 Seed)
 	return Holds;
 }
 
-TArray<FClimbRoute> AGymActor::Problems()
+static FTransform RouteHoldFrame(const FClimbRoute& Route, const FClimbHold& Hold)
+{
+	const FClimbPanel& Panel = Route.At(Hold.Point.Y);
+	const FVector Up = -Hold.Pull.X * Panel.Right - Hold.Pull.Y * Panel.Up;
+	return HoldFrame(Route.Map(Hold.Point), Panel.Out, Up);
+}
+
+static void SampleRouteHold(FClimbRoute& Route, int32 RouteIndex, int32 HoldIndex)
+{
+	FClimbHold& Hold = Route.Holds[HoldIndex];
+	const int32 Template = PickTemplate(Hold.Kind, RouteIndex * 31 + HoldIndex);
+	FMeshSink Resin, Mount;
+	BuildHold(Template, HoldSize(Hold.Kind), FTransform::Identity, RouteIndex * 977 + HoldIndex, Resin, Mount);
+
+	FBox Bounds(ForceInit);
+	for (const FVector& Point : Resin.Vertices) Bounds += Point;
+	const FTransform Frame = RouteHoldFrame(Route, Hold);
+	auto Surface = [&](const FVector& Start, const FVector& End) -> TOptional<FVector>
+	{
+		TOptional<FVector> Nearest;
+		double Distance = TNumericLimits<double>::Max();
+		for (int32 I = 0; I < Resin.Triangles.Num(); I += 3)
+		{
+			FVector Point, Normal;
+			if (!FMath::SegmentTriangleIntersection(Start, End,
+				Resin.Vertices[Resin.Triangles[I]], Resin.Vertices[Resin.Triangles[I + 1]],
+				Resin.Vertices[Resin.Triangles[I + 2]], Point, Normal)) continue;
+			const double Next = FVector::DistSquared(Start, Point);
+			if (Next < Distance)
+			{
+				Nearest = Frame.TransformPosition(Point);
+				Distance = Next;
+			}
+		}
+		return Nearest;
+	};
+	// Shoes rest on the upper face. Knuckles reach the lip from the front.
+	const FVector FootTop(Bounds.Max.X + 1, 0, Bounds.Max.Z * .60);
+	Hold.ShoeContact = Surface(FootTop, FVector(Bounds.Min.X - 1, 0, FootTop.Z));
+	const FVector HandFront(Bounds.Max.X * .60, 0, Bounds.Max.Z + 1);
+	Hold.KnuckleContact = Surface(HandFront, FVector(HandFront.X, 0, -1));
+}
+
+static TArray<FClimbRoute> BuildProblems()
 {
 	TArray<FClimbRoute> Out;
 	int32 Seed = 7;
@@ -150,8 +254,18 @@ TArray<FClimbRoute> AGymActor::Problems()
 	Cave.Holds = Ladder(TEXT("jjjj"), 2.95f, Seed++);
 	Cave.Stand = 200;
 	Cave.Aside = 420;
+	for (int32 Route = 0; Route < Out.Num(); ++Route)
+		for (int32 Hold = 0; Hold < Out[Route].Holds.Num(); ++Hold)
+			SampleRouteHold(Out[Route], Route, Hold);
 	return Out;
 }
+
+TArray<FClimbRoute> AGymActor::Problems()
+{
+	static const TArray<FClimbRoute> Routes = BuildProblems();
+	return Routes;
+}
+
 
 FLinearColor AGymActor::Tape(int32 Index)
 {
@@ -177,6 +291,7 @@ AGymActor::AGymActor()
 
 void AGymActor::BeginPlay()
 {
+	WalkerBoxes.Reset();
 	Super::BeginPlay();
 	Dice.Initialize(1991);
 	Shell();
@@ -187,18 +302,38 @@ void AGymActor::BeginPlay()
 	const TArray<FClimbRoute> Routes = Problems();
 	for (int32 Index = 0; Index < Routes.Num(); Index++) Set(Routes[Index], Index);
 	const FLinearColor Sections[2] = { Plywood, Ink };
+	const float Grain[2] = { 1.f, 0.35f };
 	for (int32 Section = 0; Section < 2; Section++)
 	{
 		Panels->CreateMeshSection_LinearColor(Section, Boards[Section].Vertices, Boards[Section].Triangles, Boards[Section].Normals, {}, {}, {}, false);
-		Panels->SetMaterial(Section, Coat(Sections[Section]));
+		Panels->SetMaterial(Section, Finish(TEXT("/Game/Gym/M_Panel.M_Panel"), Sections[Section], Grain[Section], Section == 0 ? 0.62f : 0.55f));
 	}
+	UMaterialInterface* Grit = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Gym/M_HoldGrit.M_HoldGrit"));
 	for (int32 Color = 0; Color < Paint.Num(); Color++)
 	{
 		HoldMesh->CreateMeshSection_LinearColor(Color, Paint[Color].Vertices, Paint[Color].Triangles, Paint[Color].Normals, {}, {}, {}, false);
-		HoldMesh->SetMaterial(Color, Coat(Palette[Color]));
+		UMaterialInstanceDynamic* Finish = Grit ? UMaterialInstanceDynamic::Create(Grit, this) : Coat(Palette[Color]);
+		Finish->SetVectorParameterValue(TEXT("Color"), Palette[Color]);
+		HoldMesh->SetMaterial(Color, Finish);
 	}
 	HoldMesh->CreateMeshSection_LinearColor(Paint.Num(), Shadow.Vertices, Shadow.Triangles, Shadow.Normals, {}, {}, {}, false);
 	HoldMesh->SetMaterial(Paint.Num(), Coat(FLinearColor(0.01f, 0.01f, 0.01f)));
+	// Procedural mesh sections own their vertex and index data after upload.
+	for (FMeshSink& Board : Boards) Board = {};
+	Paint.Empty();
+	Shadow = {};
+}
+
+UMaterialInstanceDynamic* AGymActor::Finish(const TCHAR* Path, FLinearColor Color, float Grain, float Roughness)
+{
+	// world-aligned authored surface from unreal/Tools/build_gym_materials.py, falling back to the flat coat
+	UMaterialInterface* Surface = LoadObject<UMaterialInterface>(nullptr, Path);
+	if (!Surface) return Coat(Color);
+	UMaterialInstanceDynamic* Layer = UMaterialInstanceDynamic::Create(Surface, this);
+	Layer->SetVectorParameterValue(TEXT("Color"), Color);
+	Layer->SetScalarParameterValue(TEXT("Grain"), Grain);
+	Layer->SetScalarParameterValue(TEXT("Roughness"), Roughness);
+	return Layer;
 }
 
 UMaterialInstanceDynamic* AGymActor::Coat(FLinearColor Color)
@@ -232,6 +367,7 @@ UInstancedStaticMeshComponent* AGymActor::Batch(FName Name, const TCHAR* Mesh, F
 
 void AGymActor::Block(FVector Center, FVector Size, FLinearColor Color, bool Shadows)
 {
+	if(Center.Z-Size.Z/2<200 && Center.Z+Size.Z/2>35) WalkerBoxes.Add(FBox(Center-Size/2,Center+Size/2));
 	// one batch per color keeps the blockout to a handful of draw calls; the basic cube is 100cm
 	const FName Name(*FString::Printf(TEXT("block %s %d"), *Color.ToString(), Shadows));
 	Batch(Name, TEXT("/Engine/BasicShapes/Cube.Cube"), Color, Shadows)->AddInstance(FTransform(FRotator::ZeroRotator, Center, Size / 100));
@@ -311,9 +447,7 @@ void AGymActor::Set(const FClimbRoute& Problem, int32 Index)
 	for (int32 Hold = 0; Hold < Problem.Holds.Num(); Hold++)
 	{
 		const FClimbHold& Spot = Problem.Holds[Hold];
-		const FClimbPanel& Face = Problem.At(Spot.Point.Y);
-		const FVector Up = Face.Right * -Spot.Pull.X + Face.Up * -Spot.Pull.Y;
-		BuildHold(PickTemplate(Spot.Kind, Index * 31 + Hold), HoldSize(Spot.Kind), HoldFrame(Problem.Map(Spot.Point), Face.Out, Up), Index * 977 + Hold, Paint[Color], Shadow);
+		BuildHold(PickTemplate(Spot.Kind, Index * 31 + Hold), HoldSize(Spot.Kind), RouteHoldFrame(Problem, Spot), Index * 977 + Hold, Paint[Color], Shadow);
 	}
 }
 
@@ -327,6 +461,7 @@ void AGymActor::Shell()
 	// a row of narrow pads tight against the back wall, so nobody lands on bare concrete
 	for (float Y = -1450; Y < 1500; Y += 100)
 		Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->AddInstance(FTransform(FRotator::ZeroRotator, FVector(-29, Y, 14), FVector(0.58f, 0.97f, 0.28f)));
+	Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->SetMaterial(0, Finish(TEXT("/Game/Gym/M_Rubber.M_Rubber"), Mat, 0, 0.8f));
 	Block(FVector(1150, 0, -5), FVector(2950, 3400, 10), FLinearColor(0.25f, 0.25f, 0.25f), false);
 	// the steel building: shell walls, insulated ceiling, beams, purlins. none of it casts shadow, or the roof would black out the key light
 	const FLinearColor Siding(0.6f, 0.6f, 0.58f);

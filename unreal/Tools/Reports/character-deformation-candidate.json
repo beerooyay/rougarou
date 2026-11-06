@@ -1,0 +1,218 @@
+{
+  "source": "/Users/beerooyay/Desktop/rougarou/unreal/Saved/CharacterReview/candidate/player.blend",
+  "sha256": "6d7c4ff44222607f76f0529fd2008b928f640e0859df969e8f9878d696e61e13",
+  "scope": "skin-only diagnostics; no Chaos cloth, runtime IK, anatomical volume, or performance certification",
+  "bones": 109,
+  "meshes": {
+    "CC_Base_Body": {
+      "vertices": 11215,
+      "bounds_object_units": [
+        1.8210924863815308,
+        0.26111678779125214,
+        1.6470259614288807
+      ],
+      "object_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "max_influences": 4,
+      "vertices_above_four_influences": 0,
+      "weight_sum_range": [
+        0.9999999552965164,
+        1.0000000447034836
+      ],
+      "shape_keys": [],
+      "modifiers": [
+        "ARMATURE"
+      ]
+    },
+    "Forest_Shorts": {
+      "vertices": 4392,
+      "bounds_object_units": [
+        0.3961252421140671,
+        0.2764325439929962,
+        0.2928818464279175
+      ],
+      "object_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "max_influences": 4,
+      "vertices_above_four_influences": 0,
+      "weight_sum_range": [
+        0.9999999487772584,
+        1.000000050291419
+      ],
+      "shape_keys": [],
+      "modifiers": [
+        "ARMATURE"
+      ],
+      "skin_only_pose_checks": {
+        "neutral": {
+          "edge_ratio_p05": 0.9999998700266911,
+          "edge_ratio_p95": 1.000000096892531,
+          "edges_above_1p5": 0,
+          "edges_below_0p5": 0
+        },
+        "drape_pose_42": {
+          "edge_ratio_p05": 0.9999998700266911,
+          "edge_ratio_p95": 1.000000096892531,
+          "edges_above_1p5": 0,
+          "edges_below_0p5": 0
+        },
+        "arms_down_65": {
+          "edge_ratio_p05": 0.9999998700266911,
+          "edge_ratio_p95": 1.000000096892531,
+          "edges_above_1p5": 0,
+          "edges_below_0p5": 0
+        },
+        "overhead_65": {
+          "edge_ratio_p05": 0.9999998700266911,
+          "edge_ratio_p95": 1.000000096892531,
+          "edges_above_1p5": 0,
+          "edges_below_0p5": 0
+        },
+        "high_step_110": {
+          "edge_ratio_p05": 0.705077395019111,
+          "edge_ratio_p95": 1.641392767177799,
+          "edges_above_1p5": 582,
+          "edges_below_0p5": 87
+        }
+      }
+    },
+    "Buzz_Cut": {
+      "vertices": 4098,
+      "bounds_object_units": [
+        0.1490362510085106,
+        0.18996094167232513,
+        0.12291419506072998
+      ],
+      "object_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "max_influences": 1,
+      "vertices_above_four_influences": 0,
+      "weight_sum_range": [
+        1.0,
+        1.0
+      ],
+      "shape_keys": [],
+      "modifiers": [
+        "ARMATURE"
+      ]
+    },
+    "Cotton_Tee": {
+      "vertices": 11482,
+      "bounds_object_units": [
+        0.8477446734905243,
+        0.3935525417327881,
+        0.5269121527671814
+      ],
+      "object_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "max_influences": 4,
+      "vertices_above_four_influences": 0,
+      "weight_sum_range": [
+        0.9999999571591616,
+        1.0000000442378223
+      ],
+      "shape_keys": [],
+      "modifiers": [
+        "ARMATURE"
+      ],
+      "skin_only_pose_checks": {
+        "neutral": {
+          "edge_ratio_p05": 0.999999585989345,
+          "edge_ratio_p95": 1.0000003726776385,
+          "edges_above_1p5": 0,
+          "edges_below_0p5": 0
+        },
+        "drape_pose_42": {
+          "edge_ratio_p05": 0.9350761448291907,
+          "edge_ratio_p95": 1.019105356015012,
+          "edges_above_1p5": 32,
+          "edges_below_0p5": 92
+        },
+        "arms_down_65": {
+          "edge_ratio_p05": 0.9020382578324073,
+          "edge_ratio_p95": 1.0373809452569098,
+          "edges_above_1p5": 66,
+          "edges_below_0p5": 109
+        },
+        "overhead_65": {
+          "edge_ratio_p05": 0.9762798087969012,
+          "edge_ratio_p95": 1.1115713359295103,
+          "edges_above_1p5": 352,
+          "edges_below_0p5": 10
+        },
+        "high_step_110": {
+          "edge_ratio_p05": 0.999999123854452,
+          "edge_ratio_p95": 1.0000031315650724,
+          "edges_above_1p5": 2,
+          "edges_below_0p5": 0
+        }
+      }
+    },
+    "Crew_Neck_Ribbing": {
+      "vertices": 208,
+      "bounds_object_units": [
+        0.1903563216328621,
+        0.2294287085533142,
+        0.0755918025970459
+      ],
+      "object_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "max_influences": 4,
+      "vertices_above_four_influences": 0,
+      "weight_sum_range": [
+        0.9999999701976776,
+        1.000000032116077
+      ],
+      "shape_keys": [],
+      "modifiers": [
+        "ARMATURE"
+      ]
+    },
+    "Buzz_Cut_Fibers": {
+      "vertices": 188664,
+      "bounds_object_units": [
+        0.1535317525267601,
+        0.1939167007803917,
+        0.12712430953979492
+      ],
+      "object_scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "max_influences": 1,
+      "vertices_above_four_influences": 0,
+      "weight_sum_range": [
+        1.0,
+        1.0
+      ],
+      "shape_keys": [],
+      "modifiers": [
+        "ARMATURE"
+      ]
+    }
+  },
+  "bone_distances_object_units": {
+    "hip_joint_width": 0.17319068420309372,
+    "shoulder_joint_width": 0.35696935214434916,
+    "upper_arm": 0.30088209966270635,
+    "forearm": 0.23463582333551758,
+    "thigh": 0.4268182662612559,
+    "shin": 0.43159794031266163
+  }
+}

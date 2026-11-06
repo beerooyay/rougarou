@@ -9,7 +9,7 @@
 <meta name="description" content="rougarou: an indoor bouldering game at the rougarou rock lounge. walk the gym, pull onto a problem, move each hand and foot, shift your weight, send it.">
 <title>rougarou</title>
 <link rel="stylesheet" href="./style.css">
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/" } }</script>
 </head>
 <body>
 <canvas id="view"></canvas>
@@ -34,6 +34,8 @@
 <div class="hud bottom" id="bar">
 	<button id="prev" aria-label="previous problem">&lsaquo;</button>
 	<button id="retry">retry</button>
+	<button id="fpBtn" hidden>first person</button>
+	<button id="fpRH" hidden>right hand</button><button id="fpLH" hidden>left hand</button><button id="fpRF" hidden>right foot</button><button id="fpLF" hidden>left foot</button>
 	<button id="pull" class="hot" hidden>pull on</button>
 	<button id="edit" hidden>set this problem</button>
 	<button id="back" class="hot" hidden>put back</button>
@@ -87,6 +89,6 @@
 
 <div id="stick" hidden><i></i></div>
 <div id="cross" hidden></div>
-<script type="module" src="./main.js"></script>
+<script type="module" src="./main.js?v=player-polish"></script>
 </body>
 </html>

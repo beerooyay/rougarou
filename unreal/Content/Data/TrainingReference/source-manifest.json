@@ -1,0 +1,18 @@
+{
+  "kind": "engineered reference, not a learned policy",
+  "assist_fraction": 0.9,
+  "source_hashes": {
+    "character/player.glb": "221ab1c5dded2c3367357adf2e23a255df95ab40ea5e228e4ecf765f02178546",
+    "character/model/rig.json": "6488d9acbc18883cb670bcd23754ae85ca23bd97cd49cc90399cb88f6b9d2086",
+    "character/model/blaize2.xml": "303526b6cabb3a84c0f3add70b31c9ce75750f1cb1fd2b1de7e4e2c8dedbd5c9",
+    "sources/reference-grips.json": "cf298a82b8cc0ae95007c363cb5dcfd1f40d9be8eaa72cfa89151f44ac79281a",
+    "sources/grip_audit.py": "dc0b6c130cbb22037762de2beb9d47304183b090ce78f3fdeb4df61b0f048d33",
+    "sources/record_reference.py": "26e27a9b767512cd0d96060700c252e473d5f426d2920c1b62a242e0a2368cb0",
+    "sources/trajectory.py": "819fc0346ff24a6dbdaec441d0cfd8d0103c4b7d49737fcba55a0df3dc694342",
+    "sources/reach_environment.py": "7119997e9767423236a2b3aee3c10fdda304d58ed56bc6290872c83629027ba4",
+    "sources/environment.py": "e4cbf96f9007dd675c83aea0c11de9c1f22dd883d82e04ca36630fd4992b492a",
+    "sources/requirements-lock.txt": "25eb684ebdc73095c413c8327fa450565b3fc9b77ae66f6698dfb64e539102ff"
+  },
+  "task": "release, multi-finger regrip, one-second post-success hold",
+  "promotion": false
+}

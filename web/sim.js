@@ -144,9 +144,10 @@ export class Sim {
 	arrived(limb) { return this.latch[limb] >= 0; }
 
 	restart() {
-		// the hips start a little above the middle of the four start holds, wherever a setter put them
+		// Settle below the hands instead of starting in a sustained pull-up.
 		const starts = [0, 1, 2, 3].map(l => this.holds()[l].point);
 		this.position = new Vec2(starts.reduce((a, p) => a + p.x, 0) / 4, starts.reduce((a, p) => a + p.y, 0) / 4 + 0.175);
+		if (this.routes[this.route].at(this.position.y).up.z > 0.85 && this.routes[this.route].steep(this.position.y) <= 0.05) this.position.y -= 0.08;
 		this.velocity = new Vec2();
 		this.angle = 0;
 		this.spin = 0;
@@ -331,6 +332,8 @@ export class Sim {
 		if (weight > 0) {
 			// the hips ease toward the stance at a human pace instead of snapping, which keeps the load on the fingers smooth
 			const wanted = stance.mul(1 / weight).add(reach);
+			// Match the native relaxed opening stance after the contacts settle.
+			if (face.at(this.position.y).up.z > 0.85 && face.steep(this.position.y) <= 0.05 && mover < 0 && this.grips.every((hold, limb) => hold === limb)) wanted.y -= 0.10;
 			this.goal = this.goal.add(wanted.sub(this.goal).mul(Math.min(1, delta * 6)).clampLen(1.2 * delta));
 			let needed = this.goal.sub(this.position).mul(2400).sub(this.velocity.mul(520)).sub(weight2D);
 			for (let pass = 0; pass < 4 && needed.len() > 1; pass++) {

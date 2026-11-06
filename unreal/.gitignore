@@ -2,5 +2,6 @@ Binaries/
 Intermediate/
 Saved/
 DerivedDataCache/
+Content/Local/
 .vs/
 *.xcworkspace

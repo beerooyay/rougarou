@@ -30,6 +30,9 @@ public:
 	static TArray<FClimbRoute> Problems();
 	// the tape color of problem Index
 	static FLinearColor Tape(int32 Index);
+	static bool WalkerBlocked(FVector At);
+	static FVector MoveWalker(FVector From, FVector Step);
+	static FVector ClearWalker(FVector At, FVector Direction);
 
 protected:
 	virtual void BeginPlay() override;
@@ -53,6 +56,7 @@ private:
 	FRandomStream Dice;
 
 	UMaterialInstanceDynamic* Coat(FLinearColor Color);
+	UMaterialInstanceDynamic* Finish(const TCHAR* Path, FLinearColor Color, float Grain, float Roughness);
 	UInstancedStaticMeshComponent* Batch(FName Name, const TCHAR* Mesh, FLinearColor Color, bool Shadows = true);
 	void Block(FVector Center, FVector Size, FLinearColor Color, bool Shadows = true);
 	int32 Swatch(FLinearColor Color);

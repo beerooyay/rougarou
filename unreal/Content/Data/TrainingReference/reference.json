@@ -1,0 +1,190 @@
+{
+  "holds": [
+    [
+      -0.12,
+      -0.075,
+      1.0
+    ],
+    [
+      0.12,
+      -0.075,
+      1.0
+    ],
+    [
+      -0.28,
+      -0.075,
+      2.25
+    ],
+    [
+      0.28,
+      -0.075,
+      2.25
+    ],
+    [
+      -0.5,
+      -0.075,
+      2.37
+    ],
+    [
+      0.5,
+      -0.075,
+      2.37
+    ]
+  ],
+  "run": "reference-003",
+  "assistance": 0.9,
+  "kind": "recorded engineered reference, not learned policy",
+  "evaluation": {
+    "kind": "engineered reference, not neural training",
+    "episodes": [
+      {
+        "seed": 0,
+        "heldout": false,
+        "moving": "Right",
+        "success": true,
+        "accepted_demonstration": true,
+        "success_time": 3.6799999999998163,
+        "post_hold_valid_frames": 50,
+        "post_hold_frames": 50,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.0033685093346939934,
+        "validation_peak_hand_force_N": 131.81363613130307,
+        "full_replay_peak_penetration_m": 0.0033685093346939934,
+        "full_replay_peak_hand_force_N": 131.81363613130307,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 30.653618834366352
+      },
+      {
+        "seed": 1,
+        "heldout": false,
+        "moving": "Left",
+        "success": true,
+        "accepted_demonstration": false,
+        "success_time": 3.699999999999814,
+        "post_hold_valid_frames": 8,
+        "post_hold_frames": 50,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.0033685093346939934,
+        "validation_peak_hand_force_N": 117.2918697252361,
+        "full_replay_peak_penetration_m": 0.0033685093346939934,
+        "full_replay_peak_hand_force_N": 117.2918697252361,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 33.156842131364456
+      },
+      {
+        "seed": 2,
+        "heldout": false,
+        "moving": "Right",
+        "success": true,
+        "accepted_demonstration": true,
+        "success_time": 3.8799999999997943,
+        "post_hold_valid_frames": 50,
+        "post_hold_frames": 50,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.0033685093346939934,
+        "validation_peak_hand_force_N": 117.2918697252361,
+        "full_replay_peak_penetration_m": 0.0033685093346939934,
+        "full_replay_peak_hand_force_N": 117.2918697252361,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 31.668961920735462
+      },
+      {
+        "seed": 3,
+        "heldout": false,
+        "moving": "Left",
+        "success": false,
+        "accepted_demonstration": false,
+        "success_time": null,
+        "post_hold_valid_frames": 0,
+        "post_hold_frames": 0,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.0033685093346939934,
+        "validation_peak_hand_force_N": 117.2918697252361,
+        "full_replay_peak_penetration_m": 0.0033685093346939934,
+        "full_replay_peak_hand_force_N": 117.2918697252361,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 24.914425031280008
+      },
+      {
+        "seed": 0,
+        "heldout": true,
+        "moving": "Right",
+        "success": false,
+        "accepted_demonstration": false,
+        "success_time": null,
+        "post_hold_valid_frames": 0,
+        "post_hold_frames": 0,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.007131547611093075,
+        "validation_peak_hand_force_N": 151.95583598330904,
+        "full_replay_peak_penetration_m": 0.007131547611093075,
+        "full_replay_peak_hand_force_N": 151.95583598330904,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 13.526513866299577
+      },
+      {
+        "seed": 1,
+        "heldout": true,
+        "moving": "Left",
+        "success": false,
+        "accepted_demonstration": false,
+        "success_time": null,
+        "post_hold_valid_frames": 0,
+        "post_hold_frames": 0,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.004433560809101175,
+        "validation_peak_hand_force_N": 151.95583598331032,
+        "full_replay_peak_penetration_m": 0.004433560809101175,
+        "full_replay_peak_hand_force_N": 151.95583598331032,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 12.566845555274902
+      },
+      {
+        "seed": 2,
+        "heldout": true,
+        "moving": "Right",
+        "success": false,
+        "accepted_demonstration": false,
+        "success_time": null,
+        "post_hold_valid_frames": 0,
+        "post_hold_frames": 0,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.0049224844154371625,
+        "validation_peak_hand_force_N": 151.9558359833155,
+        "full_replay_peak_penetration_m": 0.0049224844154371625,
+        "full_replay_peak_hand_force_N": 151.9558359833155,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 11.649135205133499
+      },
+      {
+        "seed": 3,
+        "heldout": true,
+        "moving": "Left",
+        "success": false,
+        "accepted_demonstration": false,
+        "success_time": null,
+        "post_hold_valid_frames": 0,
+        "post_hold_frames": 0,
+        "finger_targets_fixed": true,
+        "validation_peak_penetration_m": 0.0044335608091011745,
+        "validation_peak_hand_force_N": 151.9558359833155,
+        "full_replay_peak_penetration_m": 0.0044335608091011745,
+        "full_replay_peak_hand_force_N": 151.9558359833155,
+        "fallen": false,
+        "solver_warnings": 0,
+        "return_": 14.394864972550398
+      }
+    ],
+    "accepted_training": 2,
+    "accepted_heldout": 0,
+    "dataset_samples": 478,
+    "promotion": false
+  }
+}

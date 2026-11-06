@@ -115,8 +115,9 @@ FVector2D FClimbSim::Spot(int32 Limb) const
 
 void FClimbSim::Restart()
 {
-	// the hips start a little above the middle of the four start holds, wherever a setter put them
+	// Settle below the hands instead of starting in a sustained pull-up.
 	Position = (Holds()[0].Point + Holds()[1].Point + Holds()[2].Point + Holds()[3].Point) / 4 + FVector2D(0, 0.175f);
+	if (Spec.Routes[Route].At(Position.Y).Up.Z > 0.85f && Spec.Routes[Route].Steep(Position.Y) <= 0.05f) Position.Y -= 0.08f;
 	Velocity = FVector2D::ZeroVector;
 	Angle = 0;
 	Spin = 0;
@@ -338,7 +339,12 @@ void FClimbSim::Step(float Delta)
 		// muscles hold the hips at the stance and carry the body's weight; the limbs on the wall share the work by strength,
 		// and whatever one limb cannot deliver passes to the others. only when they all run out does the body sag.
 		// the hips ease toward the stance at a human pace instead of snapping, which keeps the load on the fingers smooth
-		const FVector2D Wanted = Stance / Weight + Reach;
+		FVector2D Wanted = Stance / Weight + Reach;
+		// Keep the opening stance relaxed after settling, rather than immediately
+		// standing back up into the old bent-arm position. Goal easing also handles
+		// leaving this stance when the first limb moves.
+		if (Face.At(Position.Y).Up.Z > 0.85f && Face.Steep(Position.Y) <= 0.05f && Mover < 0 && Grips[0] == 0 && Grips[1] == 1 && Grips[2] == 2 && Grips[3] == 3)
+			Wanted.Y -= 0.10f;
 		Goal += ((Wanted - Goal) * FMath::Min(1.f, Delta * 6)).GetClampedToMaxSize(1.2f * Delta);
 		FVector2D Needed = (Goal - Position) * 2400 - Velocity * 520 - Weight2D;
 		for (int32 Pass = 0; Pass < 4 && Needed.Size() > 1; Pass++)

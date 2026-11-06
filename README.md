@@ -35,3 +35,33 @@ A problem is sent when both hands are matched on the top hold and held under con
 - `unreal/` is the main build, in Unreal 5.8 with a C++ module. `ClimbSim.*` is the climbing model and the source of truth.
 - `web/` is the browser port (three.js, no build step). It is deployed to GitHub Pages by `.github/workflows/pages.yml`. `node web/check.mjs` proves every problem can be sent.
 - `unity/` and `godot/` are the original prototypes.
+
+### Unreal player and menus
+
+Launch locally with `./play-unreal.command`. The problems menu offers **climb
+it** and **walk there**. **M** opens problems, settings and help. **V** switches
+between third and first person. In first person, look at a hold and press **R**
+or **L**, then **A** for that arm or **L** for that leg; **1/2** are alternate
+hand picks and **3/4** are foot picks. Arrow keys latch a hip shift, **Space**
+centers, and **Escape** frees the cursor for the retry and limb buttons.
+
+First-person climbing incorporates [Corey's web contribution](https://github.com/ceeboozwah/rougarou/commit/cefc14d6fcfd438305062b45ede2829359e2313e).
+The native player uses a fitted deform rig, synchronized locomotion, and spring
+driven garment bones. See `unreal/Tools/README.md` for the local asset pipeline
+and reproducible visual checks.
+
+The human-motion port from [Corey's Form Lab work](https://github.com/ceeboozwah/rougarou/tree/3d30a187e736c28c76b58840d0d3248573175737)
+adds fixed swing/twist limits, wall-aware elbow/knee swivels, shared spine and
+scapular movement, bounded pelvis adjustments, and temporal smoothing. The local
+posture fit uses six training problems and three held-out problems; its report,
+reproduction commands and current contact-error limits are documented in
+[the motion port notes](unreal/Tools/Upstream/README.md).
+
+Normal native launches use the personalized CC4 player: the saved face/head,
+5 ft 7 in height, reshaped shoes with measured outsole contacts, ivory tee and
+forest green shorts. The body retains the CC4 skin weights. Garment edge motion
+is bounded to 3 cm at hem controls, 1.5 cm at sleeves and 2.1 cm at cuffs; this
+is lightweight secondary motion, not a full fabric solver. `-coreybaseline`
+selects the preserved original. The earlier Chaos experiments remain opt-in
+through `-modularplayer` and `-garmentcandidate`. See the character tools notes
+and `Saved/PersonalPlayer` captures for the review and known art limitations.

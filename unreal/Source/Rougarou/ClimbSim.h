@@ -11,6 +11,9 @@ struct FClimbHold
 	FVector2D Point;
 	FString Kind;
 	FVector2D Pull;
+	// Presentation contacts sampled from the rendered resin in gym space.
+	TOptional<FVector> ShoeContact;
+	TOptional<FVector> KnuckleContact;
 };
 
 // one flat panel of a problem's wall, placed in the gym in centimeters
