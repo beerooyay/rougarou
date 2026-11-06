@@ -142,19 +142,25 @@ void FClimbSim::Restart()
 	Fallen = false;
 }
 
+FString FClimbSim::Check(int32 Limb, int32 Hold) const
+{
+	if (!Holds().IsValidIndex(Hold)) return TEXT("no hold there");
+	if (Distance(Limb, Holds()[Hold].Point) > Range(Limb))
+		return FString::Printf(TEXT("%s cannot reach: shift your hips or move a foot"), Names[Limb]);
+	if (!Open(Limb, Holds()[Hold].Point))
+		return FString::Printf(TEXT("%s: the hip will not open that far"), Names[Limb]);
+	if (Gate)
+	{
+		const FString Why = Gate(*this, Limb, Hold);
+		if (!Why.IsEmpty()) return FString::Printf(TEXT("%s: %s"), Names[Limb], *Why);
+	}
+	return FString();
+}
+
 bool FClimbSim::Grab(int32 Limb, int32 Hold)
 {
-	if (!Holds().IsValidIndex(Hold)) return false;
-	if (Distance(Limb, Holds()[Hold].Point) > Range(Limb))
-	{
-		Hint = FString::Printf(TEXT("%s cannot reach: shift your hips or move a foot"), Names[Limb]);
-		return false;
-	}
-	if (!Open(Limb, Holds()[Hold].Point))
-	{
-		Hint = FString::Printf(TEXT("%s: the hip will not open that far"), Names[Limb]);
-		return false;
-	}
+	const FString Why = Check(Limb, Hold);
+	if (!Why.IsEmpty()) { Hint = Why; return false; }
 	Grips[Limb] = Hold;
 	Smeared[Limb] = false;
 	Slips[Limb] = 0;

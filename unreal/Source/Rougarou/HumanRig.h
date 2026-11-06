@@ -16,6 +16,8 @@ struct FHumanFrame
 {
  FVector T=FVector::DownVector, F=FVector::RightVector, S=FVector::ForwardVector;
  float Side=1;
+ // hips and shoulders measure twist the anatomical way: flexion, then the swing out, then the turn about the bone
+ bool Euler=false;
 };
 struct FHumanAngles { float Swing=0, Bearing=0, Twist=0; };
 struct FHumanMix { float Waist=.2583f, Spine=.6381f, Neck=.525f, Scapula=.28f; };
@@ -27,6 +29,9 @@ struct FHumanGoals
  bool Held[4]={true,true,true,true};
  TArray<FClimbPanel> Panels;
  FVector Look=FVector::ZeroVector;
+ // the route's holds as resin domes; Owners marks the limbs on each (bit per limb) so a limb may touch its own hold
+ struct FDome{FVector C,N;float R=0,H=0;uint8 Owners=0;};
+ TArray<FDome> Domes;
  static FHumanGoals FromSim(const FClimbSim& Sim,float Gap=30,float Inside=0,float HipDepth=-1,float ChestDepth=-1);
 };
 struct FHumanPose
@@ -52,6 +57,10 @@ public:
  // The searching solver Codex layered up; kept for comparison, off by default.
  FHumanPose SolveLegacy(const FHumanGoals& Goals,float Delta=0);
  bool UseLegacy=false;
+ // Newton steps for a pose with no history (the move gate uses fewer)
+ int32 ColdIterations=8;
+ // start the next cold solve from another rig's body placement (the gate starts from the live climber)
+ void WarmFrom(const FHumanRig& Other){Reset();Shift=Other.Shift;Pitch=Other.Pitch;Yaw=Other.Yaw;}
  FHumanMix Mix;
  bool LimitsEnabled=true;
  float MaxShift=12, JointRate=5, SwivelRate=2;
@@ -76,6 +85,7 @@ private:
  FVector Shift=FVector::ZeroVector, LastPelvis=FVector::ZeroVector;
  FVector PreviousPoles[4];
  FHumanGoals SmoothGoals;
+ FVector Push=FVector::ZeroVector;
  float Swivel[4]={};
  bool HasHistory=false;
  float Pitch=0, Yaw=0;

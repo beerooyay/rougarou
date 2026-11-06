@@ -35,6 +35,9 @@ public:
 
 	// the limb the player is moving, drawn with a highlight
 	int32 Selected = -1;
+	// the hold a lifted limb is lined up on: drawn green when it can be taken, red when not
+	int32 Hovered = -1;
+	bool HoverReady = false;
 
 	// free roaming the mats: the sim pauses and the avatar gets a walk pose from the controller
 	bool Walking = false;
@@ -43,6 +46,8 @@ public:
 	FVector Eye = FVector::ZeroVector;
 	void SetInside(bool Inside);
 	FHumanRig HumanRig;
+	// a second rig that tries a hold before the sim takes it (the move gate)
+	FHumanRig GateRig;
 
 	// Free roam uses the rebuilt deform rig and a synchronized, speed-blended native graph.
 	UPROPERTY()

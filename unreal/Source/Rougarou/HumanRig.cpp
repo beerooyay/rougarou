@@ -13,6 +13,15 @@ float FHumanLimit::Reach(float Phi) const
  const float A=FMath::Max(.5f,C>=0?Forward:Back), B=FMath::Max(.5f,Sine>=0?Out:In);
  return FMath::Min(180.f,1/FMath::Sqrt(FMath::Square(C/A)+FMath::Square(Sine/B)));
 }
+// the turn that takes the bone from rest to Turned the anatomical way: flexion about F, then the shortest swing on (no turn about the bone yet)
+static FQuat SwingPath(const FHumanFrame& Frame,const FVector& Turned)
+{
+ if(!Frame.Euler)return FQuat::FindBetweenNormals(Frame.T,Turned);
+ const FVector D=(Frame.F^Frame.T).GetSafeNormal();
+ const float Alpha=FMath::Atan2(FVector::DotProduct(Turned,D),FVector::DotProduct(Turned,Frame.T));
+ const FVector T1=(Frame.T*FMath::Cos(Alpha)+D*FMath::Sin(Alpha)).GetSafeNormal();
+ return FQuat::FindBetweenNormals(T1,Turned)*FQuat(Frame.F,Alpha);
+}
 FHumanAngles FHumanRig::Measure(FQuat Relative,const FHumanFrame& Frame)
 {
  Relative.Normalize();
@@ -21,7 +30,7 @@ FHumanAngles FHumanRig::Measure(FQuat Relative,const FHumanFrame& Frame)
  FHumanAngles Result;
  Result.Swing=FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(Turned,Frame.T),-1.,1.)));
  Result.Bearing=FMath::Atan2(FVector::DotProduct(Turned,E),FVector::DotProduct(Turned,D));
- const FQuat Twist=FQuat::FindBetweenNormals(Frame.T,Turned).Inverse()*Relative;
+ const FQuat Twist=SwingPath(Frame,Turned).Inverse()*Relative;
  const double Projection=Twist.X*Frame.T.X+Twist.Y*Frame.T.Y+Twist.Z*Frame.T.Z;
  Result.Twist=FMath::RadiansToDegrees(FMath::UnwindRadians(2*FMath::Atan2(Projection,Twist.W)))*Frame.Side;
  return Result;
@@ -34,7 +43,7 @@ FQuat FHumanRig::Clamp(FQuat Relative,const FHumanFrame& Frame,const FHumanLimit
  const float Angle=FMath::DegreesToRadians(FMath::Min(M.Swing,Most));
  const FVector D=(Frame.F^Frame.T).GetSafeNormal(), E=(Frame.S^Frame.T).GetSafeNormal();
  const FVector Direction=(Frame.T*FMath::Cos(Angle)+(D*FMath::Cos(M.Bearing)+E*FMath::Sin(M.Bearing))*FMath::Sin(Angle)).GetSafeNormal();
- return (FQuat::FindBetweenNormals(Frame.T,Direction)*FQuat(Frame.T,FMath::DegreesToRadians(Twist/Frame.Side))).GetNormalized();
+ return (SwingPath(Frame,Direction)*FQuat(Frame.T,FMath::DegreesToRadians(Twist/Frame.Side))).GetNormalized();
 }
 float FHumanRig::Violation(FQuat Relative,const FHumanFrame& Frame,const FHumanLimit& Limit)
 {
@@ -68,6 +77,13 @@ FHumanGoals FHumanGoals::FromSim(const FClimbSim& Sim,float Gap,float Inside,flo
     if(!Contact)Grip=TEXT("free");
    }
    else if(Sim.Smeared[L]&&Contact)Grip=TEXT("smear");
+   else if(Sim.Reaching==L && Sim.Holds().IsValidIndex(Sim.Aimed))
+   {
+    // lined up on a hold: the hand turns to its pull and shapes for it on the way in
+    const FClimbHold& Next=Sim.Holds()[Sim.Aimed];
+    Grip=Next.Kind;
+    Over=(-TipPanel.Right*Next.Pull.X-TipPanel.Up*Next.Pull.Y).GetSafeNormal();
+   }
    else Over=(At-Result.Roots[L]).GetSafeNormal();
    if(Contact && Hold)Result.HandSurfaces[L-2]=Hold->KnuckleContact;
    if(Contact && Hold && Hold->KnuckleContact.IsSet())
@@ -87,6 +103,14 @@ FHumanGoals FHumanGoals::FromSim(const FClimbSim& Sim,float Gap,float Inside,flo
    : FRig::Knee(Panel.Right,Panel.Up,Panel.Out,Sign,(Result.Ends[L]-Result.Roots[L]).Z);
  }
  Result.Look=-Panel.Out;
+ for(int32 H=0;H<Sim.Holds().Num();++H)
+ {
+  const FClimbHold& Hold=Sim.Holds()[H];
+  if(Hold.Radius<=0)continue;
+  FHumanGoals::FDome Dome{Hold.Center,Hold.Normal,Hold.Radius,Hold.Height,0};
+  for(int32 L=0;L<4;++L)if(Sim.Grips[L]==H)Dome.Owners|=1<<L;
+  Result.Domes.Add(Dome);
+ }
  return Result;
 }
 float FHumanPose::Cost(const FHumanGoals& Goals) const
@@ -107,7 +131,7 @@ void FHumanRig::Compose(const TArray<FTransform>& Local,TArray<FTransform>& Spac
  Space.SetNumUninitialized(Local.Num());
  for(int32 I=0;I<Local.Num();I++)Space[I]=Parents[I]<0?Local[I]:Local[I]*Space[Parents[I]];
 }
-void FHumanRig::Reset(){HasHistory=false;Pitch=0;Yaw=0;Previous.Reset();Shift=FVector::ZeroVector;for(float& A:Swivel)A=0;}
+void FHumanRig::Reset(){HasHistory=false;Push=FVector::ZeroVector;Pitch=0;Yaw=0;Previous.Reset();Shift=FVector::ZeroVector;for(float& A:Swivel)A=0;}
 
 bool FHumanRig::Initialize(const FReferenceSkeleton& Ref,const FString& Profile)
 {
@@ -196,7 +220,9 @@ bool FHumanRig::Initialize(const FReferenceSkeleton& Ref,const FString& Profile)
   const FVector Outward=Arm?RefUp:Alias.Key.ToString().Contains(TEXT("Thigh"))||Alias.Key.ToString().Contains(TEXT("Calf"))?RefSide*(Left?1:-1):RefSide;
   if(FVector::DotProduct(S^T,Outward)<0)S=-S;
   const FQuat Inv=NeutralSpace[I].GetRotation().Inverse();
-  Frames.Add(I,{Inv.RotateVector(T),Inv.RotateVector(F),Inv.RotateVector(S),Left?-1.f:1.f});
+   FHumanFrame Built{Inv.RotateVector(T),Inv.RotateVector(F),Inv.RotateVector(S),Left?-1.f:1.f};
+  Built.Euler=Alias.Key.ToString().EndsWith(TEXT("Thigh"))||Alias.Key.ToString().EndsWith(TEXT("Upperarm"));
+  Frames.Add(I,Built);
  }
  return true;
 }
@@ -207,15 +233,31 @@ FQuat FHumanRig::LimitLocal(int32 Index,FQuat Local) const
  return (Neutral[Index].GetRotation()*Clamp(Neutral[Index].GetRotation().Inverse()*Local,*Frame,*L)).GetNormalized();
 }
 
-static float HumanWallDepth(const FHumanGoals& Goals,FVector Point)
+// how far a ball is clear of a hold's resin dome (negative inside), and the way out along the dome's gradient
+static float HumanDomeClear(const FHumanGoals::FDome& D,FVector P,float Radius,FVector& Way)
 {
- float Result=MAX_flt;
+ const FVector Rel=P-D.C;const float Along=FVector::DotProduct(Rel,D.N);
+ if(Along< -Radius)return 99;
+ const FVector Lateral=Rel-D.N*Along;
+ const float A=D.R+Radius,B=D.H+Radius,Q=FMath::Square(Lateral.Size()/A)+FMath::Square(FMath::Max(Along,0.f)/B);
+ if(Q>=1)return 99;
+ Way=(Lateral/(A*A)+D.N*(FMath::Max(Along,0.f)/(B*B))).GetSafeNormal();
+ if(Way.IsNearlyZero())Way=D.N;
+ return (FMath::Sqrt(Q)-1)*FMath::Min(A,B);
+}
+static float HumanWallDepth(const FHumanGoals& Goals,FVector Point,FVector* Normal=nullptr)
+{
+ // the nearest panel strip in front of the point; past a strip's end, the distance to its edge
+ float Result=MAX_flt,Best=MAX_flt;
  for(const FClimbPanel& P:Goals.Panels)
  {
-  const float Along=FVector::DotProduct(Point-P.Origin,P.Up)/100;
-  if(Along<-.15f||Along>P.Length+.15f)continue;
-  const float Depth=FVector::DotProduct(Point-P.Origin,P.Out);
-  if(Depth> -60)Result=FMath::Min(Result,Depth);
+  const FVector D=Point-P.Origin;
+  const float Along=FVector::DotProduct(D,P.Up),Clamped=FMath::Clamp(Along,0.f,P.Length*100);
+  const FVector Q=D-P.Up*Clamped;
+  const float Here=FVector::DotProduct(Q,P.Out);
+  if(Here<-60)continue;
+  const float Distance=Clamped==Along?FMath::Abs(Here):Q.Size();
+  if(Distance<Best){Best=Distance;Result=Clamped==Along?Here:Distance;if(Normal)*Normal=P.Out;}
  }
  return Result;
 }
@@ -481,30 +523,62 @@ void FHumanRig::PoseFingers(const FHumanGoals& Goals,FHumanPose& Pose) const
   const FString& Grip=Goals.Grips[Limb];
   const FVector Over=Pose.World.InverseTransformVectorNoScale(Goals.Along[Limb]);
   const FVector In=Pose.World.InverseTransformVectorNoScale(-Goals.Out[Limb]);
+  // the hold this hand is on, as resin: each finger closes until its tip meets it
+  const FHumanGoals::FDome* Resin=nullptr;
+  for(const FHumanGoals::FDome& D:Goals.Domes)if(D.Owners&(1<<Limb)){Resin=&D;break;}
+  float Closed=1;
   for(const TCHAR* Finger:{TEXT("Index"),TEXT("Middle"),TEXT("Ring"),TEXT("Pinky")})
   {
    int32 Chain[3];
    for(int32 J=0;J<3;++J)Chain[J]=Bone(*FString::Printf(TEXT("%sHand%s%d"),Side,Finger,J+1));
    if(Chain[0]<0||Chain[1]<0||Chain[2]<0)continue;
+   if(Grip==TEXT("free"))continue;
+   float Bends[3];
    for(int32 J=0;J<3;++J)
    {
-    const int32 I=Chain[J],Parent=Parents[I];
-    const FVector RestAxis=J<2?RestSpace[Chain[J+1]].GetLocation()-RestSpace[I].GetLocation()
-     :RestSpace[I].GetLocation()-RestSpace[Parent].GetLocation();
     float Bend=8.f*(J+1);
     if(Grip==TEXT("jug")) Bend=J==0?16.f:J==1?74.f:105.f;
     else if(Grip==TEXT("crimp")) Bend=J==0?22.f:J==1?95.f:84.f;
     else if(Grip==TEXT("pinch")) Bend=J==0?20.f:J==1?45.f:64.f;
     else if(Grip==TEXT("sloper")||Grip==TEXT("smear")) Bend=4.f*J;
-    if(Grip==TEXT("free"))continue;
-    const float Angle=FMath::DegreesToRadians(Bend);
-    const FVector Aim=(Over*FMath::Cos(Angle)+In*FMath::Sin(Angle)).GetSafeNormal();
-    const FQuat Carried=(Space[Parent].GetRotation()*Rest[I].GetRotation()).GetNormalized();
-    const FVector Axis=Carried.RotateVector(RestSpace[I].GetRotation().Inverse().RotateVector(RestAxis)).GetSafeNormal();
-    const FQuat Rotation=FQuat::FindBetweenNormals(Axis,Aim)*Carried;
-    Pose.Local[I].SetRotation((Space[Parent].GetRotation().Inverse()*Rotation).GetNormalized());
-    Space[I]=Pose.Local[I]*Space[Parent];
+    Bends[J]=Bend;
    }
+   // poses the finger at Scale of its grip's curl and returns where the fingertip ends up, in gym space
+   const float Tip=FVector::Distance(RestSpace[Chain[2]].GetLocation(),RestSpace[Chain[1]].GetLocation());
+   auto Curl=[&](float Scale)
+   {
+    for(int32 J=0;J<3;++J)
+    {
+     const int32 I=Chain[J],Parent=Parents[I];
+     const FVector RestAxis=J<2?RestSpace[Chain[J+1]].GetLocation()-RestSpace[I].GetLocation()
+      :RestSpace[I].GetLocation()-RestSpace[Parent].GetLocation();
+     // sloper and open hands still bend a little at each knuckle so they can drape over the resin
+     const float Angle=FMath::DegreesToRadians(FMath::Max(Bends[J],Resin?20.f+12.f*J:0.f)*Scale);
+     const FVector Aim=(Over*FMath::Cos(Angle)+In*FMath::Sin(Angle)).GetSafeNormal();
+     const FQuat Carried=(Space[Parent].GetRotation()*Rest[I].GetRotation()).GetNormalized();
+     const FVector Axis=Carried.RotateVector(RestSpace[I].GetRotation().Inverse().RotateVector(RestAxis)).GetSafeNormal();
+     const FQuat Rotation=FQuat::FindBetweenNormals(Axis,Aim)*Carried;
+     Pose.Local[I].SetRotation((Space[Parent].GetRotation().Inverse()*Rotation).GetNormalized());
+     Space[I]=Pose.Local[I]*Space[Parent];
+    }
+    const FVector Last=(Space[Chain[2]].GetLocation()-Space[Chain[1]].GetLocation()).GetSafeNormal();
+    return Pose.World.TransformPosition(Space[Chain[2]].GetLocation()+Last*Tip*.8f);
+   };
+   if(!Resin){Curl(1);continue;}
+   // close from open until the tip touches the resin (or the wall), never past the grip's full curl: a
+   // bisection on one curl amount, so the wrap changes smoothly as the hand moves on the hold
+   auto Touching=[&](float Scale)
+   {
+    const FVector P=Curl(Scale);FVector Way;
+    return HumanDomeClear(*Resin,P,.9f,Way)<=0 || HumanWallDepth(Goals,P)<1.f;
+   };
+   // jugs and crimps have an incut lip the dome does not model: those fingers always hook most of the way over it
+   float Low=Grip==TEXT("jug")||Grip==TEXT("crimp")?.8f:.1f,High=1.25f;
+   if(Touching(Low))High=Low;
+   else if(!Touching(High))Low=High;
+   else for(int32 Step=0;Step<10;++Step){const float Mid=(Low+High)*.5f;if(Touching(Mid))High=Mid;else Low=Mid;}
+   Curl(High);
+   Closed=FMath::Min(Closed,High);
   }
 
   for(int32 J=1;J<=3;++J)
@@ -512,7 +586,7 @@ void FHumanRig::PoseFingers(const FHumanGoals& Goals,FHumanPose& Pose) const
    const int32 I=Bone(*FString::Printf(TEXT("%sHandThumb%d"),Side,J));
    if(I<0||Grip==TEXT("free"))continue;
    const FVector Axis=RestSpace[I].GetRotation().Inverse().RotateVector(Over^In).GetSafeNormal();
-   Pose.Local[I].SetRotation((Rest[I].GetRotation()*FQuat(Axis,FMath::DegreesToRadians(J==1?15.f:22.f))).GetNormalized());
+   Pose.Local[I].SetRotation((Rest[I].GetRotation()*FQuat(Axis,FMath::DegreesToRadians((J==1?15.f:22.f)*FMath::Clamp(Closed+.3f,.5f,1.2f)))).GetNormalized());
   }
  }
 }
@@ -558,24 +632,74 @@ FHumanPose FHumanRig::Solve(const FHumanGoals& InputGoals,float Delta)
  // Newton steps on the contact cost along each body axis: a smooth function of
  // the goals, unlike a pattern search whose answer jumps between grid points.
  const FVector Axes[3]={SmoothGoals.Out[0],(SmoothGoals.Roots[3]-SmoothGoals.Roots[2]).GetSafeNormal(),(SmoothGoals.Roots[2]+SmoothGoals.Roots[3]-SmoothGoals.Roots[0]-SmoothGoals.Roots[1]).GetSafeNormal()};
- auto Score=[&](FVector At){return Pass(SmoothGoals,At,Zero,false,Ignored,0,0,true).Cost(SmoothGoals);};
- const float H=1.5f;
- for(int32 Iteration=0;Iteration<(Settle?2:8);++Iteration)
+ // The pelvis may also tip and turn a little under the spine (Corey's hip
+ // opening): it swings knees off the wall and frees a high step. Same Newton
+ // steps, with a cost on the angle itself so it only opens when it helps.
+ float WantPitch=Pitch,WantYaw=Yaw;
+ auto Score=[&](FVector At,float P,float Y){return Pass(SmoothGoals,At,Zero,false,Ignored,P,Y,true).Cost(SmoothGoals)+40*(P*P+Y*Y);};
+ const float H=1.5f,HA=.03f;
+ auto Newton=[](float Plus,float Here,float Minus,float Step,float Most){const float Slope=(Plus-Minus)/(2*Step),Curve=(Plus-2*Here+Minus)/(Step*Step);return -FMath::Clamp(Curve>1e-3f?Slope/Curve:Slope*.05f,-Most,Most);};
+ for(int32 Iteration=0;Iteration<(Settle?2:ColdIterations);++Iteration)
  {
-  const float Here=Score(Wanted);FVector Step=FVector::ZeroVector;
+  const float Here=Score(Wanted,WantPitch,WantYaw);FVector Step=FVector::ZeroVector;
   for(const FVector& Axis:Axes)
   {
    if(Axis.IsNearlyZero())continue;
-   const float Plus=Score(Wanted+Axis*H),Minus=Score(Wanted-Axis*H);
-   const float Slope=(Plus-Minus)/(2*H),Curve=(Plus-2*Here+Minus)/(H*H);
-   Step-=Axis*FMath::Clamp(Curve>1e-3f?Slope/Curve:Slope*.05f,-4.f,4.f);
+   Step+=Axis*Newton(Score(Wanted+Axis*H,WantPitch,WantYaw),Here,Score(Wanted-Axis*H,WantPitch,WantYaw),H,4.f);
   }
+  const float DP=Newton(Score(Wanted,WantPitch+HA,WantYaw),Here,Score(Wanted,WantPitch-HA,WantYaw),HA,.08f);
+  const float DY=Newton(Score(Wanted,WantPitch,WantYaw+HA),Here,Score(Wanted,WantPitch,WantYaw-HA),HA,.08f);
+  WantPitch=FMath::Clamp(WantPitch+DP,-.31f,.31f);WantYaw=FMath::Clamp(WantYaw+DY,-.45f,.45f);
   Wanted=(Wanted+Step).GetClampedToMaxSize(MaxShift);
   const float Depth=HumanWallDepth(SmoothGoals,Pelvis+Wanted);
   if(Depth<18)Wanted+=SmoothGoals.Out[0]*(18-Depth);
  }
- Shift=Settle?FMath::Lerp(Shift,Wanted,1-FMath::Exp(-8*FMath::Min(Delta,.05f))):Wanted;
- FHumanPose Best=Pass(SmoothGoals,Shift,Zero,false,Ignored,0,0,true);
+ const float Ease=1-FMath::Exp(-8*FMath::Min(Delta,.05f));
+ Shift=Settle?FMath::Lerp(Shift,Wanted,Ease):Wanted;
+ Pitch=Settle?FMath::Lerp(Pitch,WantPitch,Ease*.6f):WantPitch;
+ Yaw=Settle?FMath::Lerp(Yaw,WantYaw,Ease*.6f):WantYaw;
+ FHumanPose Best=Pass(SmoothGoals,Shift+Push,Zero,false,Ignored,Pitch,Yaw,true);
+ // Corey's first rule: no part of the body is in the wall. Sample the thighs,
+ // shins, pelvis, trunk and head as balls; whatever is deepest moves the whole
+ // body out along that panel's face. The push comes on fast and lets go slowly.
+ {
+  TArray<FTransform> Space;Compose(Best.Local,Space);
+  auto At=[&](const TCHAR* Name){const int32 I=Bone(Name);return I>=0?Best.World.TransformPosition(Space[I].GetLocation()):FVector(NAN);};
+  struct FBall{FVector P;float R;int32 Limb;};TArray<FBall,TInlineAllocator<24>> Balls;
+  int32 Owner=-1;
+  auto Along=[&](FVector A,FVector B,float R){if(A.ContainsNaN()||B.ContainsNaN())return;for(float T:{.3f,.5f,.7f})Balls.Add({FMath::Lerp(A,B,T),R,Owner});};
+  for(const TCHAR* Side:{TEXT("Left"),TEXT("Right")})
+  {
+   const FString P(Side);Owner=P==TEXT("Right")?0:1;
+   Along(At(*(P+TEXT("UpLeg"))),At(*(P+TEXT("Leg"))),8);
+   Along(At(*(P+TEXT("Leg"))),At(*(P+TEXT("Foot"))),5);
+   const FVector Knee=At(*(P+TEXT("Leg")));if(!Knee.ContainsNaN())Balls.Add({Knee,6,Owner});
+  }
+  Owner=-1;
+  const FVector Hips=At(TEXT("Hips")),Head=At(TEXT("Head"));
+  if(!Hips.ContainsNaN())Balls.Add({Hips,12,-1});
+  Along(Hips,Head,13);
+  if(!Head.ContainsNaN())Balls.Add({Head,10,-1});
+  float Worst=0;FVector Out=SmoothGoals.Out[0];
+  for(const FBall& B:Balls)
+  {
+   FVector N;float Deep=B.R+1-HumanWallDepth(SmoothGoals,B.P,&N);if(Deep>Worst){Worst=Deep;Out=N;}
+   // a shin may rest on the hold its own foot is on
+   for(const FHumanGoals::FDome& D:SmoothGoals.Domes)
+   {
+    if(B.Limb>=0 && (D.Owners&(1<<B.Limb)))continue;
+    FVector Way;Deep=-HumanDomeClear(D,B.P,B.R,Way)+.5f;if(Deep>Worst){Worst=Deep;Out=Way;}
+   }
+  }
+  const FVector Clear=Worst>0?Push+Out*Worst:FVector::ZeroVector;
+  const float Dt=FMath::Min(Delta,.05f);
+  const FVector Next=!Settle?Clear:FMath::Lerp(Push,Clear,1-FMath::Exp(-(Worst>0?20.f:3.f)*Dt));
+  if(!Next.Equals(Push,.05f))
+  {
+   Push=Next.GetClampedToMaxSize(50);
+   Best=Pass(SmoothGoals,Shift+Push,Zero,false,Ignored,Pitch,Yaw,true);
+  }
+ }
  PoseFingers(SmoothGoals,Best);
  // A speed ceiling on each joint for sudden goal changes (a new grip, a knee
  // flipping sides). The inputs are already smooth, so it rarely engages.
@@ -593,7 +717,6 @@ FHumanPose FHumanRig::Solve(const FHumanGoals& InputGoals,float Delta)
    if(Angle>SMALL_NUMBER)Best.Local[I].SetRotation(LimitLocal(I,FQuat::Slerp(Previous[I],Target,Follow)));
   }
  }
- Pitch=Yaw=0;
  PreviousWorld=Best.World;
  Previous.SetNum(Best.Local.Num());for(int32 I=0;I<Best.Local.Num();I++)Previous[I]=Best.Local[I].GetRotation();
  HasHistory=Delta>0;LastPelvis=Pelvis;

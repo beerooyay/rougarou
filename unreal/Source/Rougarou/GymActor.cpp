@@ -200,6 +200,11 @@ static void SampleRouteHold(FClimbRoute& Route, int32 RouteIndex, int32 HoldInde
 	FBox Bounds(ForceInit);
 	for (const FVector& Point : Resin.Vertices) Bounds += Point;
 	const FTransform Frame = RouteHoldFrame(Route, Hold);
+	Hold.Center = Frame.GetLocation();
+	// the hold frame's z is out of the wall; x and y lie on it
+	Hold.Normal = Frame.GetUnitAxis(EAxis::Z);
+	Hold.Radius = FMath::Max(Bounds.GetExtent().X, Bounds.GetExtent().Y);
+	Hold.Height = FMath::Max(0., Bounds.Max.Z);
 	auto Surface = [&](const FVector& Start, const FVector& End) -> TOptional<FVector>
 	{
 		TOptional<FVector> Nearest;

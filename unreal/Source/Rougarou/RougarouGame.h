@@ -105,6 +105,12 @@ private:
 	FVector Behind = FVector(1, 0, 0);
 	float Clock = 0;
 	FVector2D Aim = FVector2D::ZeroVector;
+	// the hold the lifted limb is lined up on, whether the body can take it, and why not
+	int32 Hovered = -1;
+	bool HoverReady = false;
+	FString HoverWhy;
+	FVector2D HoverFrom = FVector2D::ZeroVector;
+	FVector2D Guide = FVector2D::ZeroVector;
 
 	bool Cursor(FVector2D& Out) const;
 	FVector2D Tip(int32 Index) const;

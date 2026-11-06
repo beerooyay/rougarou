@@ -50,6 +50,24 @@ void AClimberActor::BeginPlay()
 		for (const TCHAR* Name : Names) Rigged &= Ref.FindBoneIndex(FName(Name)) != INDEX_NONE;
 		if (Rigged) Rigged = HumanRig.Initialize(Ref,FHumanRig::ProfilePath());
 		if (Rigged) { Walker->SetSkeletalMesh(Mesh); Walker->SetAnimInstanceClass(ULocomotionAnim::StaticClass()); }
+		if (Rigged && GateRig.Initialize(Ref, FHumanRig::ProfilePath()))
+		{
+			GateRig.ColdIterations = 3;
+			// pose the body as if the limb were already on the hold; refuse what no joint can reach, or what puts a knee or elbow in the wall
+			Sim.Gate = [this](const FClimbSim& Now, int32 Limb, int32 Hold) -> FString
+			{
+				FClimbSim Try = Now;
+				Try.Gate = nullptr;
+				Try.Grips[Limb] = Hold; Try.Smeared[Limb] = false; Try.Latch[Limb] = 0;
+				Try.Tips[Limb] = Now.Holds()[Hold].Point; Try.Reaching = -1;
+				GateRig.WarmFrom(HumanRig);
+				const FHumanPose Pose = GateRig.Solve(FHumanGoals::FromSim(Try, Gap, 0, HipDepth, ChestDepth), 0);
+				if (!Pose.Finite) return FString();
+				if (Pose.Miss[Limb] > 8) return TEXT("the joints will not reach it from here");
+				if (Pose.MinClearance < -1) return TEXT("that would put a knee or elbow in the wall");
+				return FString();
+			};
+		}
 	}
 	Rebuild();
 }
@@ -279,6 +297,15 @@ void AClimberActor::Tick(float Delta)
 	if (Rigged)
 	{
 		Pose();
+		if (Selected >= 0 && Selected < 4 && Sim.Holds().IsValidIndex(Hovered))
+		{
+			// the hold being aimed at: a ring on the resin, green when the body can take it, red when it cannot
+			const FClimbHold& H = Sim.Holds()[Hovered];
+			const FVector N = H.Normal.IsNearlyZero() ? Sim.Spec.Routes[Sim.Route].At(H.Point.Y).Out : H.Normal;
+			const FVector C = H.Radius > 0 ? H.Center + N * (H.Height + 1) : Place(H.Point, 4);
+			FVector A, B; N.FindBestAxisVectors(A, B);
+			DrawDebugCircle(GetWorld(), C, FMath::Max(H.Radius, 5.f) + 3, 40, HoverReady ? FColor(90, 230, 140) : FColor(240, 90, 80), false, -1, 0, 1.5f, A, B, false);
+		}
 		if (Selected >= 0 && Selected < 4)
 			DrawDebugSphere(GetWorld(), Place(Sim.Tips[Selected], Sim.Arrived(Selected) ? 3 : Gap * .5f),
 				12, 10, FColor(255, 230, 64), false, -1, 0, 2);

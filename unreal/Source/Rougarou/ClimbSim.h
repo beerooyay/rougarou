@@ -14,6 +14,9 @@ struct FClimbHold
 	// Presentation contacts sampled from the rendered resin in gym space.
 	TOptional<FVector> ShoeContact;
 	TOptional<FVector> KnuckleContact;
+	// the resin as a half-ellipsoid on the wall, in gym space: for keeping knees and the body out of it
+	FVector Center = FVector::ZeroVector, Normal = FVector::ZeroVector;
+	float Radius = 0, Height = 0;
 };
 
 // one flat panel of a problem's wall, placed in the gym in centimeters
@@ -101,6 +104,10 @@ public:
 	int32 Reaching = -1;
 	FVector2D Target = FVector2D::ZeroVector;
 	FString Hint;
+	// the hold a lifted limb is lined up on, so the hand can shape for it before it lands
+	int32 Aimed = -1;
+	// the skeleton has the last word: a hold the joints cannot reach, or that would put a knee in the wall, is refused with a reason
+	TFunction<FString(const FClimbSim&, int32, int32)> Gate;
 	// where each hand and foot really is: it travels where it is sent at a human speed and only bears weight once it gets there
 	FVector2D Tips[4];
 	// how settled each grip is, 0 just caught to 1 locked in, negative while the limb is still on its way.
@@ -136,6 +143,8 @@ public:
 	bool Arrived(int32 Limb) const { return Latch[Limb] >= 0; }
 	// whether the hip can put a foot there: no higher than a high step, only a little across the body. hands are free
 	bool Open(int32 Limb, FVector2D Point) const;
+	// why a limb could not take a hold right now (empty when it can); Grab uses it, and so does the aiming preview
+	FString Check(int32 Limb, int32 Hold) const;
 	const TArray<FClimbHold>& Holds() const { return Spec.Routes[Route].Holds; }
 
 	bool Grab(int32 Limb, int32 Hold);

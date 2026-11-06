@@ -214,7 +214,7 @@ void ARougarouController::Press(FVector2D Point)
 	};
 	// the hold under the cursor wins if the body can still get there by reaching; otherwise whatever the fingertips touch.
 	// a hold just past the fingertips is caught by its near edge: a weak press there instead of nothing
-	const int32 Wanted = Nearest(Point), Touched = Nearest(Aim);
+	const int32 Wanted = Hovered >= 0 ? Hovered : Nearest(Point), Touched = Nearest(Aim);
 	if (Wanted >= 0 && Sim.Grab(Limb, Wanted)) { Limb = -1; return; }
 	if (Touched < 0 || !Sim.Grab(Limb, Touched)) Sim.Smear(Limb, Aim);
 	Limb = -1;
@@ -350,14 +350,41 @@ void ARougarouController::PlayerTick(float Delta)
 		if (Clock > 1.5f && Clock < 2 && Limb < 0) Press(Tip(Test));
 		if (Limb >= 0) { Over = true; Point = Sim.Joint(Test) + FVector2D(Test % 2 == 0 ? -0.25f : 0.25f, 0.9f); }
 	}
+	int32 Snap = -1;
 	if (Over && Limb >= 0)
 	{
-		// the lifted hand or foot follows the cursor until the limb runs out of length
-		Aim = Sim.Clamp(Limb, Point);
+		// the hold nearest the cursor is the one being aimed at; ask the body (reach, hip and skeleton) once when it changes and a few times a second after
+		int32 Best = -1; float Closest = .25f;
+		for (int32 Hold = 0; Hold < Sim.Holds().Num(); Hold++)
+		{
+			const float Gap = FVector2D::Distance(Sim.Holds()[Hold].Point, Point);
+			if (Gap < Closest) { Closest = Gap; Best = Hold; }
+		}
+		if (Best != Hovered || FVector2D::Distance(HoverFrom, Sim.Position) > .04f)
+		{
+			Hovered = Best; HoverFrom = Sim.Position;
+			HoverWhy = Best >= 0 ? Sim.Check(Limb, Best) : FString();
+			HoverReady = Best >= 0 && HoverWhy.IsEmpty();
+		}
+		// a takeable hold pulls the hand in as the cursor nears it, so landing it does not take pixel aim
+		FVector2D Wanted = Point;
+		if (Hovered >= 0 && HoverReady)
+		{
+			const float Pull = FMath::SmoothStep(.16f, .03f, Closest);
+			Wanted = FMath::Lerp(Point, Sim.Holds()[Hovered].Point, Pull);
+			if (Pull > .3f) Snap = Hovered;
+		}
+		// the guide eases toward the cursor instead of teleporting with it, and the hand follows the guide until the limb runs out of length
+		Guide = Guide.IsZero() ? Wanted : FMath::Lerp(Guide, Wanted, 1 - FMath::Exp(-22 * Delta));
+		Aim = Sim.Clamp(Limb, Guide);
 	}
+	else if (Limb < 0) { Hovered = -1; HoverReady = false; HoverWhy.Reset(); Guide = FVector2D::ZeroVector; }
 	// the reach target is where the cursor really is: past the fingertips, the body shifts and turns toward it
 	Sim.Reaching = Limb;
-	Sim.Target = Over && Limb >= 0 ? Point : Aim;
+	Sim.Aimed = Snap;
+	Sim.Target = Over && Limb >= 0 ? Guide : Aim;
+	Climber->Hovered = Limb >= 0 ? Hovered : -1;
+	Climber->HoverReady = HoverReady;
 	if (!FirstPerson && Over && WasInputKeyJustPressed(EKeys::LeftMouseButton)) Press(Point);
 	if (Limb >= 0 && (WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::RightMouseButton))) Cancel();
 	if (Limb >= 0 && WasInputKeyJustPressed(EKeys::X)) Limb = -1;
@@ -548,7 +575,11 @@ FString ARougarouController::Hint() const
 	if(Climber->Sim.Won)return TEXT("sent. nice work.");
 	if(FirstPerson && PickSide>=0)return SidePrompt();
 	if(FirstPerson)return AimedHold>=0?TEXT("hold in sight / choose a hand or foot"):TEXT("look at a hold to reach it");
-	if(Limb>=0)return TEXT("reach, then click to place");
+	if(Limb>=0)
+	{
+		if(Hovered>=0)return HoverReady?TEXT("click to take it"):HoverWhy;
+		return TEXT("reach for a hold, then click");
+	}
 	return TEXT("choose a hand or foot");
 }
 FString ARougarouController::Keys() const
