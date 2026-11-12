@@ -1,0 +1,48 @@
+<!doctype html><meta charset="utf-8"><title>Rougarou rig checks</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+<pre id="report">loading rig…</pre><script type="module">
+import * as THREE from 'three';
+import {loadSkin} from './skin.js';
+import {Climber} from './climber.js';
+import {Sim,Vec3} from './sim.js';
+import {problems,routeHolds,toThree} from './gym.js';
+const report=document.querySelector('#report');
+try {
+ const scene=new THREE.Scene(),skin=await loadSkin(scene),routes=problems();routes.forEach(routeHolds);
+ if(!skin?.bone.RightSoleContact)throw Error('native character or sole landmarks missing');
+ const climber=new Climber(scene),sim=new Sim(routes),rows=[];
+ const query=new URLSearchParams(location.search);
+ for(const crimp of query.has('all')?[false,true]:[query.has('crimp')])for(let r=0;r<routes.length;r++){
+  sim.route=r;sim.restart();climber.reset();skin.motion.reset();
+  for(let i=0;i<30;i++){sim.step(1/60);skin.pose(climber.climbPose(sim,-1,1/60),1/60);}
+  let crimpMove=null;
+  if(crimp){
+   for(let h=0;h<sim.holds().length && !crimpMove;h++)if(sim.holds()[h].kind==='crimp')for(const l of [2,3])if(sim.grab(l,h)){crimpMove={limb:l,hold:h};break;}
+   if(crimpMove)for(let i=0;i<60;i++){sim.step(1/60);skin.pose(climber.climbPose(sim,-1,1/60),1/60);}
+  }
+  skin.root.updateMatrixWorld(true);
+  const gaps=[],tipGaps=[],fingerTips=[],digits=[];
+  for(let l=2;l<4;l++){
+   const side=l===2?'Right':'Left',surface=sim.holds()[sim.grips[l]]?.surface;
+   if(!surface)throw Error('starting hand detached');
+   const clear=p=>surface.clear(new Vec3(p.z*100,-p.x*100,p.y*100));
+   for(const digit of ['Index','Middle','Ring','Pinky','Thumb']){
+    const bones=[1,2,3].map(j=>skin.bone[side+'Hand'+digit+j]);
+    const points=bones.map(b=>b.getWorldPosition(new THREE.Vector3()));
+    const rest=skin.restWorld,offset=rest.get(bones[2]).p.clone().sub(rest.get(bones[1]).p).applyQuaternion(rest.get(bones[2]).q.clone().invert()).multiplyScalar(.8);
+    points.push(points[2].clone().add(offset.applyQuaternion(bones[2].getWorldQuaternion(new THREE.Quaternion()))));
+    digits.push({side,digit,min:Math.min(...points.map(clear)),tip:clear(points[3])});tipGaps.push(clear(points[3]));if(digit!=='Thumb')fingerTips.push(clear(points[3]));
+    gaps.push(...points.map(clear),...points.slice(1).map((p,i)=>clear(p.clone().lerp(points[i],.5))));
+   }
+  }
+  const soles=[0,1].map(l=>{
+   const b=skin.bone[(l===0?'Right':'Left')+'SoleContact'];
+   const p=b.getWorldPosition(new THREE.Vector3()),wanted=sim.holds()[sim.grips[l]].surface.foot();
+   return p.distanceTo(new THREE.Vector3(...toThree(wanted)))*100;
+  });
+  rows.push({route:routes[r].name,scenario:crimp?'crimp':'start',crimpMove,digits,minDigitClearanceCm:Math.min(...gaps),maxTipGapCm:Math.max(...tipGaps),maxFingerTipGapCm:Math.max(...fingerTips),soleMissCm:soles});
+ }
+ const failures=rows.filter(r=>r.minDigitClearanceCm<-.1||Math.max(...r.soleMissCm)>4);
+ report.textContent=JSON.stringify({status:failures.length?'FAIL':'PASS',tolerances:{sampledDigitPenetrationCm:.1,soleMissCm:4},scope:new URLSearchParams(location.search).has('crimp')?'Nine crimp reaches; digit centerlines and sole landmarks, not mesh collision or all moves.':'Nine settled starting stances; digit centerlines and sole landmarks, not mesh collision or all moves.',rows},null,2);
+}catch(e){report.textContent='FAIL '+e.stack;}
+</script>

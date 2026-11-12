@@ -136,7 +136,7 @@ export class Sim {
 		return this.joint(limb).add(new Vec2(side * 0.1, limb >= 2 ? -0.35 : -0.6));
 	}
 	gripPoint(hold, across) {
-		return hold.point.add(new Vec2(-hold.pull.y, hold.pull.x).norm().mul(0.06 * across));
+		return hold.point.add(new Vec2(-hold.pull.y, hold.pull.x).norm().mul((hold.surface?Math.max(2,(hold.surface.max.y-hold.surface.min.y)*.5):10)*.006 * across));
 	}
 	spot(limb) {
 		if (this.grips[limb] >= 0) return this.gripPoint(this.holds()[this.grips[limb]], this.placement[limb]);

@@ -67,6 +67,7 @@ export function solve(pose) {
 
 // a pose part way from A to B
 export function blend(a, b, t) {
+	if (a?.constructor?.name === 'HoldContact' || b?.constructor?.name === 'HoldContact') return b ?? a;
 	if (a instanceof Vec3) return a.lerp(b, t);
 	if (typeof a === 'number') return a + (b - a) * t;
 	if (Array.isArray(a)) return a.map((x, i) => blend(x, b[i], t));
@@ -358,7 +359,7 @@ export class Climber {
 					const hold = sim.holds()[sim.grips[limb]];
 					grip = held || tip.dist(sim.spot(limb)) < 0.18 ? hold.kind : 'free';
 					// fingers point over the lip, away from the way the hold is pulled; a pinch is gripped from below its side
-					if (hold.kind !== 'pinch') over = panel.right.mul(-hold.pull.x).add(panel.up.mul(-hold.pull.y)).norm();
+					over = panel.right.mul(-hold.pull.x).add(panel.up.mul(-hold.pull.y)).norm();
 				} else if (sim.smeared[limb] && held) grip = 'smear';
 				else {
 					// a pumped hand off the wall dangles and shakes out
@@ -371,11 +372,22 @@ export class Climber {
 				// a hand near its limit trembles
 				shake += Math.min(1, Math.max(0, (sim.strain[limb] - 0.85) * 4)) * Math.sin(this.clock * 70 + limb) * 0.6;
 				part = handOn(panel, contact, over, side, grip, shake);
+    const hold=sim.holds()[sim.grips[limb]];
+    if(hold?.surface && grip!=='free') {
+     const offset=face.map(sim.spot(limb)).sub(face.map(hold.point));
+     const knuckle=hold.surface.hand(grip,offset);
+     const approach=held?1:1-smoothStep(.025,.22,tip.dist(sim.spot(limb)));
+     part.end=part.end.lerp(knuckle.sub(over.mul(10)),approach);
+     part.hand.palm=part.end.add(over.mul(6));
+     part.hand.contact=part.end.add(over.mul(10));part.hand.surface=hold.surface;part.hand.held=held;
+    }
 			} else {
-				// a climbing shoe: toe on the hold, heel out from the wall and a little low, the ankle above the heel
+				const hold=sim.holds()[sim.grips[limb]];
+    if(held && hold?.surface)contact=hold.surface.foot(face.map(sim.spot(limb)).sub(face.map(hold.point)));
+    // a climbing shoe: toe on the hold, heel out from the wall and a little low, the ankle above the heel
 				const ankle = contact.add(panel.out.mul(14)).add(panel.up.mul(7));
 				const heel = contact.add(panel.out.mul(19)).sub(panel.up.mul(1.5));
-				part = { end: ankle, foot: { toe: contact, heel, up: panel.up } };
+				part = { end: ankle, foot: { toe: contact, heel, up: panel.up, held } };
 			}
 			// elbows drop down and out; a foot on the side the body is turning toward drops its knee
 			const lean = arm ? [0.6, side * 0.35, -0.8] : [0.35, side * (0.3 + 0.9 * this.away), 1];

@@ -2,9 +2,10 @@
 // the same check as unreal/Source/Rougarou/ClimbSimTest.cpp, run against the web port.
 
 import { Sim, Vec2 } from './sim.js';
-import { problems } from './gym.js';
+import { problems, routeHolds } from './gym.js';
 
 const routes = problems();
+routes.forEach(routeHolds);
 const sim = new Sim(routes);
 const settle = (frames) => { for (let f = 0; f < frames; f++) sim.step(1 / 60); sim.lean = new Vec2(); };
 const save = () => structuredClone({ ...sim, routes: null, body: null });

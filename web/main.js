@@ -12,7 +12,7 @@ import { Recorder } from './recorder.js';
 import { UI, clock } from './ui.js';
 import { Editor } from './editor.js';
 import { loadHands } from './hands.js';
-import { loadSkin } from './skin.js?v=3';
+import { loadSkin } from './skin.js?v=20261112-native';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const three = (v) => new THREE.Vector3(...toThree(v));
@@ -79,7 +79,7 @@ const soup = (sink, color, roughness = 0.82) => {
 // pale birch plywood and charcoal panels, holds in satin resin
 soup(gym.boards[0], [0.84, 0.68, 0.47]);
 soup(gym.boards[1], [0.055, 0.055, 0.06], 0.9);
-gym.paint.forEach((sink, i) => { soup(sink, gym.palette[i], 0.5).castShadow = true; });
+gym.paint.forEach((sink, i) => { soup(sink, gym.palette[i], 0.72).castShadow = true; });
 // the bolt holes, one instanced batch
 {
 	const hole = new THREE.CylinderGeometry(0.0075, 0.0075, 0.002, 7);
@@ -112,7 +112,7 @@ function rebuild(index) {
 		group.add(m);
 		return m;
 	};
-	group.userData.resin = mesh(built.body, built.color, 0.5);
+	group.userData.resin = mesh(built.body, built.color, 0.72);
 	group.userData.faceStarts = built.faceStarts;
 	mesh(built.dark, [0.01, 0.01, 0.01], 0.8);
 	if (spots) {
@@ -837,7 +837,7 @@ canvas.addEventListener('wheel', (e) => {
 	ui.save();
 }, { passive: false });
 for (const b of document.querySelectorAll('button')) b.addEventListener('click', () => audio.click());
-$('tip').textContent = touchy
+$('tip').textContent = Number.isFinite(asked) ? 'click a hand or foot, then choose a hold. wasd shifts your hips.' : touchy
 	? 'left thumb walks, right thumb looks. walk up to a problem and tap its two start holds to pull on.'
 	: 'wasd to walk, click to look around with the mouse. walk up to a problem and click its two start holds to pull on.';
 const climbTip = touchy
@@ -1156,7 +1156,7 @@ function update(real) {
 		: climbing ? 'v first person · wasd hips · esc put back · x hang · j jump down · r retry · wheel zoom · m menu · ` record'
 		: locked ? 'wasd walk · shift sprint · mouse looks · click a start hold · e pull on · esc frees the mouse'
 		: 'wasd walk · shift sprint · click to look around · wheel zoom · e pull on · [ ] next · m menu · ` record';
-	if (mode === 'mount' && !$('tip').classList.contains('gone') && $('tip').textContent !== climbTip) $('tip').textContent = climbTip;
+	if (!$('tip').classList.contains('gone')) $('tip').textContent = mode === 'climb' || mode === 'mount' ? climbTip : touchy ? 'left thumb walks, right thumb looks. tap the two start holds to pull on.' : 'wasd walks · shift sprints · click to look around · e pulls on';
 	renderer.render(scene, camera);
 }
 applySettings(ui.settings);

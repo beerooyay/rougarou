@@ -1,11 +1,11 @@
-// the rigged climber: the player2 mesh on the fitted ready-made skeleton, when `models/skin.glb` is present
-// (local-only like hands.glb: personal likeness, never committed or deployed; the tube climber stays without it).
+// Native shoulder-v2 player, exported with its original skeleton and sole landmarks.
 // bones are aimed joint-to-joint from the same solved pose the mannequin draws: hips from the leg roots, torso from
 // the shoulders, limbs through a two-bone solve at the rig's own lengths, with facing frames for knees, soles and palms.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { toThree } from './gym.js';
+import { Vec3 } from './sim.js';
 import { HumanMotion } from './human-motion.js';
 import { GarmentPhysics,garmentNames } from './garment-physics.js';
 
@@ -39,27 +39,10 @@ function solve(start, target, hint, upper, lower) {
 	return { bend, end };
 }
 
-// slide the knee around the hip-ankle line until it clears the wall, keeping both segment lengths
-function limit(start, end, point, normal, margin, bend) {
-	if (bend.clone().sub(point).dot(normal) >= margin) return bend;
-	const axis = end.clone().sub(start).normalize();
-	const center = start.clone().add(axis.clone().multiplyScalar(bend.clone().sub(start).dot(axis)));
-	const offset = bend.clone().sub(center), radius = offset.length();
-	const across = normal.clone().sub(axis.clone().multiplyScalar(normal.dot(axis)));
-	if (radius < 0.001 || across.lengthSq() < 0.001) return bend;
-	across.normalize();
-	const needed = (margin - center.clone().sub(point).dot(normal)) / (radius * across.length());
-	const c = Math.min(Math.max(needed, -1), 1);
-	let tangent = offset.clone().sub(across.clone().multiplyScalar(offset.dot(across))).normalize();
-	if (!tangent.lengthSq()) tangent = axis.clone().cross(across).normalize();
-	return center.add(offset.clone().normalize().multiplyScalar(0)).add(
-		across.multiplyScalar(c).add(tangent.multiplyScalar(Math.sqrt(Math.max(0, 1 - c * c)))).multiplyScalar(radius));
-}
-
 export async function loadSkin(scene) {
- // Prefer the optional local rig, then use the character shipped with Pages.
+ // Ship the same player used by the native launcher; retain the older asset as fallback.
  let model = null;
- for (const candidate of ['./models/corey-player.glb', './models/skin.glb']) {
+ for (const candidate of ['./models/blaize-player.glb', './models/skin.glb']) {
   const response = await fetch(candidate, { method: 'HEAD' }).catch(() => null);
   if (response?.ok) { model = candidate; break; }
  }
@@ -103,13 +86,18 @@ export class Skin {
 		this.refSide = at('LeftArm').p.clone().sub(at('RightArm').p).normalize();
 		this.refPelvis = at('LeftUpLeg').p.clone().add(at('RightUpLeg').p).divideScalar(2);
 		this.motion=new HumanMotion(this,profile);
-		this.swivels=[0,0,0,0];
+		this.swivels=[0,0,0,0];this.bodyOffset=new THREE.Vector3();
 		this.garments=new GarmentPhysics();
 	}
 
 	// where a bone currently lands: a wanted world transform if set, else forward kinematics through posed parents
 	worldOf(b) {
-		if (this.wants.has(b)) return this.wants.get(b);
+		if (this.wants.has(b)) {
+   const wanted=this.wants.get(b);
+   if(b.name==='Hips')return wanted;
+   const parent=b.parent&&this.bone[b.parent.name]?this.worldOf(b.parent):this.base;
+   return {p:this.restLocal.get(b).p.clone().applyQuaternion(parent.q).add(parent.p),q:wanted.q};
+  }
 		if (!this.world.has(b)) {
 			const parent = b.parent && this.bone[b.parent.name] ? this.worldOf(b.parent) : this.base;
 			const r = this.restLocal.get(b);
@@ -143,11 +131,89 @@ export class Skin {
 		this.wants.set(b, {p,q});this.world.clear();
 	}
 
+ fitFingers(side,hand) {
+  const surface=hand.surface,over=three(hand.over),inside=three(hand.out).negate();
+  const clear=p=>surface?surface.clear(new Vec3(p.z*100,-p.x*100,p.y*100)):100;
+  const rest=this.restWorld,world=b=>this.worldOf(b),chain=f=>[1,2,3].map(j=>this.bone[`${side}Hand${f}${j}`]);
+  const tipOf=ch=>{
+   const last=ch[2],offset=rest.get(last).p.clone().sub(rest.get(ch[1]).p).applyQuaternion(rest.get(last).q.clone().invert());
+   return world(last).p.clone().add(offset.multiplyScalar(.8).applyQuaternion(world(last).q));
+  };
+  for(const finger of Fingers){
+   const ch=chain(finger);if(ch.some(b=>!b))continue;
+   const angles=hand.grip==='crimp'?[12,80,55]:hand.grip==='jug'?[16,58,76]:hand.grip==='pinch'?[20,45,64]:hand.grip==='sloper'?[0,4,8]:[8,16,24];
+   const arch=hand.grip==='crimp'?12:hand.grip==='jug'||hand.grip==='pinch'?10:0;
+   const apply=(amount,adjust=[0,0,0])=>{
+    for(let j=0;j<3;j++){
+     this.wants.delete(ch[j]);this.world.clear();
+     const a=(Math.max(angles[j],surface?20+12*j:0)*amount*(j===0?1:1+arch/40)-(j===0&&surface?arch:0)+adjust[j])*Math.PI/180;
+     const b=ch[j],parent=world(b.parent),carried=parent.q.clone().multiply(this.restLocal.get(b).q);
+     const axis=(j<2?rest.get(ch[j+1]).p.clone().sub(rest.get(b).p):rest.get(b).p.clone().sub(rest.get(ch[j-1]).p)).applyQuaternion(rest.get(b).q.clone().invert()).applyQuaternion(carried).normalize();
+     const target=over.clone().multiplyScalar(Math.cos(a)).addScaledVector(inside,Math.sin(a)).normalize();
+     const turn=new THREE.Quaternion().setFromUnitVectors(axis,target),cap=[48,100,85][j]*Math.PI/180;
+     const q=new THREE.Quaternion().slerp(turn,Math.min(1,cap/Math.max(.001,new THREE.Quaternion().angleTo(turn)))).multiply(carried);
+     this.wants.set(b,{p:world(b).p.clone(),q});this.world.clear();
+    }
+    const points=ch.map(b=>world(b).p.clone());points.push(tipOf(ch));
+    let gap=Infinity;
+    for(let i=0;i<points.length;i++){
+     gap=Math.min(gap,clear(points[i]));
+     if(i)gap=Math.min(gap,clear(points[i].clone().lerp(points[i-1],.5)));
+    }
+    return {gap,tip:clear(points[3])};
+   };
+   let best=1,score=Infinity;
+   if(surface)for(let i=0;i<=32;i++){
+    const amount=-.15+1.4*i/32,{gap,tip}=apply(amount);
+    const cost=Math.max(0,.9-gap)**2*1000+Math.abs(tip-1)+1.25*Math.abs(amount-1);
+    if(cost<score){score=cost;best=amount;}
+   }
+   let result=apply(best);
+   if(surface && result.gap<.8){
+    let offsets=[0,0,0],score=Math.max(0,.9-result.gap)**2*1000+Math.abs(result.tip-1);
+    for(const step of [30,15,8,4,2])for(let j=0;j<3;j++){
+     let chosen=offsets;
+     for(const sign of [-1,1]){
+      const trial=offsets.slice();trial[j]=Math.max(-60,Math.min(60,trial[j]+sign*step));
+      const r=apply(best,trial),cost=Math.max(0,.9-r.gap)**2*1000+Math.abs(r.tip-1)+trial.reduce((sum,x)=>sum+x*x,0)*.0003;
+      if(cost<score){score=cost;chosen=trial;}
+     }
+     offsets=chosen;
+    }
+    apply(best,offsets);
+   }
+  }
+  // Thumb motion is relative to its own bind frame, not a wall-facing finger axis.
+  const thumb=chain('Thumb');if(thumb.some(b=>!b))return;
+  const applyThumb=amount=>{
+   for(let j=0;j<3;j++){
+    const b=thumb[j];this.wants.delete(b);this.world.clear();
+    const parent=world(b.parent),r=this.restLocal.get(b),carried=parent.q.clone().multiply(r.q);
+    const axis=over.clone().cross(inside).normalize().applyQuaternion(carried.clone().invert());
+    const q=carried.multiply(new THREE.Quaternion().setFromAxisAngle(axis,amount*(j===0?12:16)*Math.PI/180));
+    this.wants.set(b,{p:world(b).p.clone(),q});this.world.clear();
+   }
+   const points=thumb.map(b=>world(b).p.clone());points.push(tipOf(thumb));
+   return Math.min(...points.map(clear),...points.slice(1).map((p,i)=>clear(p.clone().lerp(points[i],.5))));
+  };
+  const natural=hand.grip==='free'?.45:1;
+  let best=natural,bestClear=-Infinity;
+  for(let i=0;i<=12;i++){
+   const amount=natural+(-1.8-natural)*i/12,gap=applyThumb(amount);
+   if(gap>bestClear){bestClear=gap;best=amount;}
+   if(gap>=.9)break;
+  }
+  applyThumb(best);
+ }
+
 	pose(pose,delta=1/60,walking=false) {
-		if(this.wasWalking!==walking){this.motion.reset();this.garments.reset();this.wasWalking=walking;}
+		if(this.wasWalking!==walking){this.motion.reset();this.garments.reset();this.bodyOffset.set(0,0,0);this.wasWalking=walking;}
 		this.world.clear(); this.wants.clear();
 		const pelvis = three(pose.roots[0].add(pose.roots[1]).mul(0.5));
 		const chest = three(pose.roots[2].add(pose.roots[3]).mul(0.5));
+  if(this.rawPelvis&&this.rawPelvis.distanceTo(pelvis)>1)this.bodyOffset.set(0,0,0);
+  this.rawPelvis=pelvis.clone();
+  if(!walking){pelvis.add(this.bodyOffset);chest.add(this.bodyOffset);}
 		const up = chest.clone().sub(pelvis).normalize();
 		const side = three(pose.roots[3].sub(pose.roots[2])).normalize();
 		const back = three(pose.back);
@@ -156,7 +222,7 @@ export class Skin {
 		const to = frame(side, up);
 		const turn = to.clone().multiply(from.clone().invert());
 		const hips = this.bone['Hips'], restHips = this.restWorld.get(hips);
-		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1)this.motion.reset();
+		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1){this.motion.reset();}
 		this.lastPelvis=pelvis.clone();
 		this.wants.set(hips, { p: pelvis, q: turn.clone().multiply(restHips.q) });
 		const mix=this.motion.profile.native_mix,front=this.motion.front;
@@ -178,7 +244,9 @@ export class Skin {
 			if(!leg){
 				const clavicle=this.bone[limb===2?'RightShoulder':'LeftShoulder'];
 				const direction=three(part.end).sub(this.worldOf(top).p).normalize();
-				const angle=Math.min(25*Math.PI/180,Math.asin(Math.max(0,Math.min(1,direction.dot(up))))*mix.scapula);
+				const span=this.restWorld.get(top).p.distanceTo(this.restWorld.get(midB).p)+this.restWorld.get(midB).p.distanceTo(this.restWorld.get(bot).p);
+    const stretch=Math.max(0,Math.min(1,(three(part.end).distanceTo(this.worldOf(top).p)/span-.8)/.2));
+    const angle=Math.min((4+4*stretch)*Math.PI/180,Math.asin(Math.max(0,Math.min(1,direction.dot(up))))*mix.scapula*(.2+.2*stretch))-4*Math.PI/180*(1-stretch);
 				const axis=this.restWorld.get(top).p.clone().sub(this.restWorld.get(clavicle).p).normalize();
 				const wanted=axis.clone().multiplyScalar(Math.cos(angle)).addScaledVector(this.refUp,Math.sin(angle)).normalize();
 				const carry=this.worldOf(clavicle.parent).q.clone().multiply(this.restWorld.get(clavicle.parent).q.clone().invert());
@@ -188,8 +256,23 @@ export class Skin {
 			const one = this.restWorld.get(top).p.distanceTo(this.restWorld.get(midB).p);
 			const two = this.restWorld.get(midB).p.distanceTo(this.restWorld.get(bot).p);
 			// Fit the CC4 shoe to the hold at its toe, using its actual ankle pivot.
-			const end = leg ? three(part.foot.toe).addScaledVector(back,.25).addScaledVector(three(part.foot.up),.06) : three(part.end);
-			const height = Math.min(Math.max((end.clone().sub(start).dot(up) * 100 + 20) / 40, 0), 1);
+			let end = leg ? three(part.foot.toe).addScaledVector(back,.19).addScaledVector(three(part.foot.up),.047) : three(part.end);
+   if(walking && !leg && part.hand.grip==='free')end=start.clone().add(three(part.end.sub(pose.roots[limb])).clampLength(0,(one+two)*.97));
+   if(!leg && part.hand.contact) {
+    const rest=this.restWorld.get(bot),axis=this.restWorld.get(tip).p.clone().sub(rest.p);
+    const q=frame(three(part.hand.over),three(part.hand.out).negate()).multiply(frame(axis,this.refUp.clone().negate()).invert()).multiply(rest.q);
+    end=three(part.hand.contact).sub(axis.applyQuaternion(rest.q.clone().invert()).applyQuaternion(q));
+   }
+			let shoeRotation=null;
+   if(leg){
+    const soleBone=this.bone[(limb===0?'Right':'Left')+'SoleContact'];
+    const rest=this.restWorld.get(bot);
+    const soleOffset=soleBone?this.restWorld.get(soleBone).p.clone().sub(rest.p):this.motion.front.clone().multiplyScalar(.19).addScaledVector(this.refUp,-.047);
+    const wanted=three(part.foot.toe.sub(part.foot.heel)).normalize();
+    shoeRotation=frame(wanted,three(part.foot.up)).multiply(frame(this.motion.front,this.refUp).invert()).multiply(rest.q);
+    end=three(part.foot.toe).sub(soleOffset.applyQuaternion(rest.q.clone().invert()).applyQuaternion(shoeRotation));
+   }
+   const height = Math.min(Math.max((end.clone().sub(start).dot(up) * 100 + 20) / 40, 0), 1);
 			const hint = leg ? start.clone().add(knee(side, up, back, sideOf(limb), height).multiplyScalar(1))
 				: start.clone().add(three(part.bend.sub(pose.roots[limb])));
 			let ik = solve(start, end, hint, one, two);
@@ -202,60 +285,103 @@ export class Skin {
 			const trySwivel=angle=>{
 				for(const b of [top,midB,bot])this.wants.delete(b);this.world.clear();
 				const bend=center.clone().addScaledVector(pole,Math.cos(angle)).addScaledVector(around,Math.sin(angle));
-				const frontAxis=this.restWorld.get(tip).p.clone().sub(this.restWorld.get(bot).p);
-				this.aim(top,midB,start,bend.clone().sub(start),leg?bend.clone().sub(ik.end):null,leg?frontAxis:null);
-				const middle=this.worldOf(midB).p.clone();
-				this.aim(midB,bot,middle,ik.end.clone().sub(middle),leg?bend.clone().sub(start):null,leg?frontAxis:null);
-				const actual=this.worldOf(bot).p,depth=middle.clone().sub(wallPoint).dot(out);
-				const cost=actual.distanceToSquared(end)*300+Math.max(0,(leg?.10:.07)-depth)**2*10000+.05*angle**2;
+    const upperRest=this.restWorld.get(top).q,lowerRest=this.restWorld.get(midB).q;
+    const restAxis=this.restWorld.get(midB).p.clone().sub(this.restWorld.get(top).p).normalize();
+        const parent=this.worldOf(top.parent).q,carry=parent.clone().multiply(this.restWorld.get(top.parent).q.clone().invert());
+    const d1=bend.clone().sub(start).normalize(),d2=ik.end.clone().sub(bend).normalize();
+    let qu=new THREE.Quaternion().setFromUnitVectors(restAxis.clone().applyQuaternion(carry),d1).multiply(carry).multiply(upperRest);
+    const hinge=restAxis.clone().cross(this.motion.front.clone().multiplyScalar(leg?-1:1)).normalize().applyQuaternion(upperRest.clone().invert());
+    const need=d1.clone().cross(d2),sine=need.length();
+    if(sine>.02){
+     const here=hinge.applyQuaternion(qu);here.addScaledVector(d1,-here.dot(d1)).normalize();
+     const normal=need.normalize(),roll=Math.atan2(d1.dot(here.clone().cross(normal)),here.dot(normal))*Math.min(1,(sine-.02)/.3);
+     qu.premultiply(new THREE.Quaternion().setFromAxisAngle(d1,roll));
+    }
+    qu=this.motion.limit(top,qu,parent);this.wants.set(top,{p:start.clone(),q:qu});this.world.clear();
+    const middle=this.worldOf(midB).p.clone(),carriedLower=qu.clone().multiply(upperRest.clone().invert()).multiply(lowerRest);
+    const lowerDirection=this.restLocal.get(bot).p.clone().normalize().applyQuaternion(carriedLower);
+    const ql=new THREE.Quaternion().setFromUnitVectors(lowerDirection,end.clone().sub(middle).normalize()).multiply(carriedLower);
+    this.wants.set(midB,{p:middle,q:this.motion.limit(midB,ql,qu)});this.world.clear();
+    if(leg){const parent=this.worldOf(bot.parent);this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q)});this.world.clear();}
+    const sole=leg?this.bone[(limb===0?'Right':'Left')+'SoleContact']:null;
+    const actual=this.worldOf(sole||bot).p,targetPoint=sole?three(part.foot.toe):end,depth=middle.clone().sub(wallPoint).dot(out);
+				const cost=actual.distanceToSquared(targetPoint)*(leg?100000:300)+(walking?0:Math.max(0,(leg?.10:.07)-depth)**2*10000)+.05*angle**2;
 				return {bend,cost};
 			};
 			let chosen=this.swivels[limb],best=trySwivel(chosen);
-			for(let i=0;i<24;i++){const angle=-Math.PI+2*Math.PI*i/24,candidate=trySwivel(angle);if(candidate.cost<best.cost){chosen=angle;best=candidate;}}
+			for(let i=0;i<36;i++){const angle=-Math.PI+2*Math.PI*i/36,candidate=trySwivel(angle);if(candidate.cost<best.cost){chosen=angle;best=candidate;}}
 			const diff=Math.atan2(Math.sin(chosen-this.swivels[limb]),Math.cos(chosen-this.swivels[limb]));
-			if(this.motion.previous.size)chosen=this.swivels[limb]+Math.max(-6*delta,Math.min(6*delta,diff));
+			if(this.motion.previous.size && !leg && !part.hand.held)chosen=this.swivels[limb]+Math.max(-6*delta,Math.min(6*delta,diff));
 			this.swivels[limb]=chosen;ik.bend=trySwivel(chosen).bend;
 
 			if (leg) {
-				const toe = three(part.foot.toe);
-				ik.bend = limit(start, ik.end, toe.clone().sub(back.clone().multiplyScalar(0.03)), back, 0.1, ik.bend);
-				const front = this.restWorld.get(tip).p.clone().sub(this.restWorld.get(bot).p);
-				const sole = three(part.foot.up);
-				this.aim(top, midB, start, ik.bend.clone().sub(start), ik.bend.clone().sub(ik.end), front);
-				this.aim(midB, bot, this.worldOf(midB).p, ik.end.clone().sub(this.worldOf(midB).p), ik.bend.clone().sub(start), front);
-				const shoeAxis=this.motion.front.clone().multiplyScalar(.25).addScaledVector(this.refUp,-.03);
-				const sourceFrame=frame(shoeAxis,this.refUp),wantedFrame=frame(toe.clone().sub(this.worldOf(bot).p),sole);
-				const rotation=wantedFrame.multiply(sourceFrame.invert()).multiply(this.restWorld.get(bot).q),parent=this.worldOf(bot.parent);
-				this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,rotation,parent.q)});this.world.clear();
+    const parent=this.worldOf(bot.parent);
+    this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q)});this.world.clear();
 			} else {
-				this.aim(top, midB, start, ik.bend.clone().sub(start));
-				this.aim(midB, bot, this.worldOf(midB).p, ik.end.clone().sub(this.worldOf(midB).p));
 				this.aim(bot, tip, ik.end, three(part.hand.over), out.clone().negate(), this.refUp.clone().negate());
-				const side = limb === 2 ? 'Right' : 'Left', grip = part.hand.grip;
-				for (let f = 0; f < 4; f++) {
-					for (let j = 1; j <= 3; j++) {
-						const index = this.bone[`${side}Hand${Fingers[f]}${j}`], next = this.bone[`${side}Hand${Fingers[f]}${j + 1}`];
-						if (!index || (!next && j < 3)) continue;
-						let angle = j * 8;
-						if (grip === 'jug') angle = j * 30;
-						else if (grip === 'crimp') angle = j === 1 ? -6 : j === 2 ? 80 : 55;
-						else if (grip === 'pinch') angle = j * 22;
-						else if (grip === 'smear') angle = 0;
-						else if (grip === 'pocket') angle = j * (f === 1 || f === 2 ? 18 : 35);
-						const rad = angle * Math.PI / 180;
-						const at = this.worldOf(index).p;
-						const dir = three(part.hand.over).multiplyScalar(Math.cos(rad)).sub(out.clone().multiplyScalar(Math.sin(rad)));
-						this.aim(index, next, at, dir);
-					}
-				}
+
+
 			}
+   // Optimize constrained FK, including ankle orientation, at fixed bone lengths.
+   const landmark=leg?this.bone[(limb===0?'Right':'Left')+'SoleContact']:tip;
+   const wantedContact=leg?three(part.foot.toe):part.hand.contact?three(part.hand.contact):null;
+   if(landmark && wantedContact){
+    const joints=[top,midB,bot],restEnd=this.restWorld.get(bot);
+    const desiredBot=leg?shoeRotation:frame(three(part.hand.over),out.clone().negate()).multiply(frame(this.restWorld.get(tip).p.clone().sub(restEnd.p),this.refUp.clone().negate()).invert()).multiply(restEnd.q);
+    let locals=joints.map(b=>this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q));
+    const evaluate=values=>{
+     for(let j=0;j<3;j++){
+      const b=joints[j],parent=this.worldOf(b.parent);
+      const q=this.motion.limit(b,j===2?desiredBot:parent.q.clone().multiply(values[j]),parent.q);
+      this.wants.set(b,{p:this.worldOf(b).p.clone(),q});this.world.clear();
+     }
+     const middle=this.worldOf(midB).p,clear=middle.clone().sub(wallPoint).dot(out);
+     let palmPenalty=0;
+     if(!leg && part.hand.surface){
+      const sideName=limb===2?'Right':'Left';
+      for(const digit of ['Thumb','Index','Middle','Pinky']){
+       const p=this.worldOf(this.bone[sideName+'Hand'+digit+'1']).p;
+       const clearance=part.hand.surface.clear(new Vec3(p.z*100,-p.x*100,p.y*100))*.01;
+       palmPenalty+=Math.max(0,.014-clearance)**2*80000;
+      }
+     }
+     return this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?2:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
+    };
+    let cost=evaluate(locals);
+
+    for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<2;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
+     let chosen=locals;
+     for(const sign of [-1,1]){
+      const candidate=locals.map(q=>q.clone());candidate[j].multiply(new THREE.Quaternion().setFromAxisAngle(axis,sign*degrees*Math.PI/180));
+      const score=evaluate(candidate);if(score<cost){cost=score;chosen=candidate;}
+     }
+     locals=chosen;evaluate(locals);
+    }
+
+   }
+   if(!leg)this.fitFingers(limb===2?'Right':'Left',part.hand);
+
 		}
+  if(!walking && delta>0){
+   const correction=new THREE.Vector3();let weight=0;
+   for(let l=0;l<4;l++){
+    const p=pose.limbs[l],name=l%2===0?'Right':'Left';
+    if(l>=2&&!p.hand.held || l<2&&p.foot.held===false)continue;
+    const bone=this.bone[name+(l<2?'SoleContact':'HandMiddle1')];
+    if(!bone)continue;
+    const target=l<2?three(p.foot.toe):three(p.hand.contact),w=l<2?1:2;
+    correction.addScaledVector(target.sub(this.worldOf(bone).p),w);weight+=w;
+   }
+   if(weight)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*12)/weight).clampLength(0,.015)).clampLength(0,.12);
+  }
 		// write local transforms: driven bones use their wanted world transform, the rest keep bind locals
 		this.world.clear();
+  const resolved=new Map(this.order.map(b=>[b,this.worldOf(b)]));
+  this.world.clear();
 		for (const b of this.order) {
 			const parent = b.parent && this.world.has(b.parent) ? this.world.get(b.parent)
 				: { p: new THREE.Vector3(), q: new THREE.Quaternion() };
-			const want = this.wants.get(b);
+			const want = this.wants.has(b)?resolved.get(b):null;
 			if (want) {
 				const pq = parent.q.clone().invert();
 				b.quaternion.copy(pq.clone().multiply(want.q));
@@ -267,7 +393,15 @@ export class Skin {
 				this.world.set(b, { p: r.p.clone().applyQuaternion(parent.q).add(parent.p), q: parent.q.clone().multiply(r.q) });
 			}
 		}
-		this.motion.smooth(delta);
+		const pinned=new Set();
+  for(let l=0;l<4;l++)if(pose.limbs[l].hand?.held || (!walking && l<2)){
+   const side=l%2===0?'Right':'Left';
+   for(const b of this.order)if(l<2 ? [side+'UpLeg',side+'Leg',side+'Foot'].includes(b.name) : b.name.startsWith(side+'Hand')||[side+'Arm',side+'ForeArm'].includes(b.name))pinned.add(b);
+  }
+  // Climbing targets already ease in the simulation and swivel solver. Do not
+  // smooth ancestors after fitting contacts: it moves the fitted digits through resin.
+  for(const b of this.wants.keys())pinned.add(b);
+  this.motion.smooth(delta,pinned);
 		if(garmentNames.every(n=>this.bone[n])){
 			this.root.updateMatrixWorld(true);
 			const point=n=>this.bone[n].getWorldPosition(new THREE.Vector3());

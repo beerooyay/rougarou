@@ -3,6 +3,12 @@
 import * as THREE from 'three';
 const V=THREE.Vector3, Q=THREE.Quaternion, DEG=180/Math.PI;
 const arc=(a,b)=>new Q().setFromUnitVectors(a,b);
+const swingPath=(f,t)=>{
+ if(!f.euler)return arc(f.T,t);
+ const d=new V().crossVectors(f.F,f.T).normalize(),a=Math.atan2(t.dot(d),t.dot(f.T));
+ const t1=f.T.clone().multiplyScalar(Math.cos(a)).addScaledVector(d,Math.sin(a)).normalize();
+ return arc(t1,t).multiply(new Q().setFromAxisAngle(f.F,a));
+};
 const bearing=f=>({D:new V().crossVectors(f.F,f.T).normalize(),E:new V().crossVectors(f.S,f.T).normalize()});
 export function measure(rel, frame) {
 	const q = rel.clone().normalize();
@@ -11,7 +17,7 @@ export function measure(rel, frame) {
 	const theta = Math.acos(Math.min(1, Math.max(-1, T2.dot(frame.T))));
 	const phi = Math.atan2(T2.dot(E), T2.dot(D));
 	// what is left once the swing has been taken off is a turn about the bone
-	const rest = arc(frame.T, T2).invert().multiply(q);
+	const rest = swingPath(frame, T2).invert().multiply(q);
 	let twist = 2 * Math.atan2(rest.x * frame.T.x + rest.y * frame.T.y + rest.z * frame.T.z, rest.w);
 	if (twist > Math.PI) twist -= 2 * Math.PI;
 	if (twist < -Math.PI) twist += 2 * Math.PI;
@@ -36,7 +42,7 @@ export function clampRel(rel, frame, lim) {
 	if (m.theta <= most + 1e-6 && twist === m.twist) return { q: rel, hit: false, values: m };
 	const theta = Math.min(m.theta, most) / DEG;
 	const T2 = frame.T.clone().multiplyScalar(Math.cos(theta)).addScaledVector(D, Math.sin(theta) * Math.cos(phi)).addScaledVector(E, Math.sin(theta) * Math.sin(phi)).normalize();
-	return { q: arc(frame.T, T2).multiply(new Q().setFromAxisAngle(frame.T, twist / frame.side / DEG)), hit: true, values: m };
+	return { q: swingPath(frame, T2).multiply(new Q().setFromAxisAngle(frame.T, twist / frame.side / DEG)), hit: true, values: m };
 }
 
 export class HumanMotion {
@@ -74,7 +80,7 @@ export class HumanMotion {
    const left=name.startsWith('Left'),arm=alias.includes('Upperarm')||alias.includes('Clavicle');
    const out=arm?refUp:alias.includes('Thigh')||alias.includes('Calf')?refSide.clone().multiplyScalar(left?1:-1):refSide;
    if(S.clone().cross(T).dot(out)<0)S.negate();
-   const inv=here.q.clone().invert();this.frames.set(b,{T:T.applyQuaternion(inv),F:F.applyQuaternion(inv),S:S.applyQuaternion(inv),side:left?-1:1});this.bounds.set(b,bound);
+   const inv=here.q.clone().invert();this.frames.set(b,{T:T.applyQuaternion(inv),F:F.applyQuaternion(inv),S:S.applyQuaternion(inv),side:left?-1:1,euler:alias.includes('Thigh')||alias.includes('Upperarm')});this.bounds.set(b,bound);
   }
  }
  limit(b,world,parent) {
@@ -83,20 +89,21 @@ export class HumanMotion {
   const rel=neutral.clone().invert().multiply(local);
   return parent.clone().multiply(neutral).multiply(clampRel(rel,this.frames.get(b),this.bounds.get(b)).q).normalize();
  }
- // Run after FK/IK. Rotations stay bounded in time and never alter joint offsets.
- smooth(delta) {
+ // Blend unplanted motion after FK/IK. Pinned chains were already constrained
+ // by the contact solve; changing them here would invalidate the fit.
+ smooth(delta,pinned=new Set()) {
   const {order,restLocal}=this.skin;
   if(delta<=0)return;
   const max=(this.profile.native?.joint_rate_radians??8)*Math.min(delta,.05);
   for(const b of order) {
    const previous=this.previous.get(b),q=b.quaternion.clone(),cap=b.name.startsWith('Spine')?max*.5:max;
-   if(previous){const angle=previous.angleTo(q),rate=cap;if(angle>rate)b.quaternion.copy(previous).slerp(q,rate/angle);}
-   if(this.bounds.has(b)) {
+   if(previous&&!pinned.has(b)){const angle=previous.angleTo(q),rate=cap;if(angle>rate)b.quaternion.copy(previous).slerp(q,rate/angle);}
+   if(this.bounds.has(b) && !pinned.has(b)) {
     const n=this.neutral.get(b),rel=n.clone().invert().multiply(b.quaternion);
     const constrained=clampRel(rel,this.frames.get(b),this.bounds.get(b)).q;
     b.quaternion.copy(n).multiply(constrained);
    }
-   if(previous&&previous.angleTo(b.quaternion)>cap+1e-7){
+   if(previous&&!pinned.has(b)&&previous.angleTo(b.quaternion)>cap+1e-7){
     for(let attempt=0;attempt<8&&previous.angleTo(b.quaternion)>cap+1e-7;attempt++){
      const angle=previous.angleTo(b.quaternion),next=previous.clone().slerp(b.quaternion,cap/angle*.98);
      if(this.bounds.has(b)){const n=this.neutral.get(b);b.quaternion.copy(n).multiply(clampRel(n.clone().invert().multiply(next),this.frames.get(b),this.bounds.get(b)).q);}else b.quaternion.copy(next);

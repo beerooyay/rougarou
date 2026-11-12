@@ -4,6 +4,7 @@
 // layout math runs in unreal space (centimeters, x into the room, y across, z up); meshes come out in three.js meters.
 
 import { Panel, Route, Vec2, Vec3 } from './sim.js';
+import { HoldContact } from './hold-contact.js';
 
 // unreal's FRandomStream, so holds land where the unreal build puts them
 export class Dice {
@@ -194,7 +195,7 @@ function pickTemplate(kind, seed) {
 
 const holdSize = (kind) => ({ jug: 22, crimp: 18, sloper: 28, pinch: 20, pocket: 18, volume: 55 }[kind] ?? 16);
 
-// a subdivided icosahedron: 80 faces for the gym's scattered holds, 320 for the problems' own, smooth-shaded either way
+// a subdivided icosahedron: 320 faces for the gym's scattered holds, 1280 for the problems' own, smooth-shaded either way
 const icosphere = (levels) => {
 	const t = (1 + Math.sqrt(5)) / 2;
 	const points = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(p => V(...p).norm());
@@ -219,7 +220,7 @@ const icosphere = (levels) => {
 	}
 	return { points, faces };
 };
-const Icos = [icosphere(1), icosphere(2)];
+const Icos = [icosphere(2), icosphere(3)];
 
 // hold space onto a surface: z along the face normal, x toward Up as far as the face allows
 function holdFrame(spot, normal, up) {
@@ -281,7 +282,7 @@ function buildHold(index, size, where, seed, body, dark, fine = false) {
 			case 'star': { const k = 1 + 0.3 * Math.cos(3 * theta); l = V(l.x * k, l.y * k, l.z); break; }
 			case 'pocket': l.z *= 1 - 0.5 * Math.exp(-(l.x * l.x + l.y * l.y) * 6); break;
 		}
-		l = l.add(V(dice.range(-1, 1), dice.range(-1, 1), dice.range(0, 1)).mul(hold.noise));
+		l = l.add(V(dice.range(-1, 1), dice.range(-1, 1), dice.range(0, 1)).mul(hold.noise*(fine?.25:.5)));
 		return place(V(l.x * scale.x, l.y * scale.y, l.z * scale.z));
 	});
 	const center = place(V(0, 0, scale.z * 0.3));
@@ -521,7 +522,9 @@ export function routeHolds(problem, index) {
 		const face = problem.at(spot.point.y);
 		const up = face.right.mul(-spot.pull.x).add(face.up.mul(-spot.pull.y));
 		const seed = spot.seed ?? h;
+		const firstVertex=body.positions.length;
 		buildHold(pickTemplate(spot.kind, index * 31 + seed), holdSize(spot.kind)*(.82+((index*7+seed*11)%9)*.055), holdFrame(problem.map(spot.point), face.out, up), index * 977 + seed, body, dark, true);
+		spot.surface=new HoldContact(body.positions.slice(firstVertex),problem.map(spot.point),up,face.out);
 	});
 	return { body, dark, color: tape(index), faceStarts };
 }
