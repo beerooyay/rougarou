@@ -437,7 +437,7 @@ function cursor(px, py, selection) {
 				const spot = face.holds[hold], panel = face.at(spot.point.y);
 				const offset = unreal(hit.point).sub(face.map(spot.point));
 				const side = new Vec2(-spot.pull.y, spot.pull.x).norm();
-				selection.across = (offset.dot(panel.right) * side.x + offset.dot(panel.up) * side.y) / 10;
+				selection.across = (offset.dot(panel.right) * side.x + offset.dot(panel.up) * side.y) / (sim.gripWidth(spot)*100);
 			}
 		}
 	}
@@ -1070,8 +1070,11 @@ function update(real) {
 		target = pelvis.add(new Vec3(0, 0, 25 + lift));
 		speed = view.dist(goal) > 300 ? 1.6 : 4;
 	}
-	view = view.lerp(goal, Math.min(1, delta * speed));
-	look = look.lerp(target, Math.min(1, delta * speed * 2));
+	// Keep the hold under the pointer while a limb is being placed.
+ if(!(mode==='climb' && limb>=0 && !fpOn())){
+  view = view.lerp(goal, Math.min(1, delta * speed));
+  look = look.lerp(target, Math.min(1, delta * speed * 2));
+ }
 	// first person blends in from the third person camera and out again, and when fully in the camera is the eye itself
 	fp.k = clamp(fp.k + (fpOn() ? delta : -delta) / 0.45, 0, 1);
 	if (fp.k > 0) {

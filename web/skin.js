@@ -149,7 +149,7 @@ export class Skin {
   };
   for(const finger of Fingers){
    const ch=chain(finger);if(ch.some(b=>!b))continue;
-   const angles=hand.grip==='crimp'?[12,80,55]:hand.grip==='jug'?[16,58,76]:hand.grip==='pinch'?[20,45,64]:hand.grip==='sloper'?[0,4,8]:[8,16,24];
+   const angles=hand.grip==='crimp'?[12,80,55]:hand.grip==='jug'?[16,58,76]:hand.grip==='pinch'?[20,45,64]:hand.grip==='sloper'?[0,4,8]:hand.grip==='pocket'?(finger==='Index'||finger==='Middle'?[20,65,55]:[40,85,70]):[8,16,24];
    const arch=hand.grip==='crimp'?12:hand.grip==='jug'||hand.grip==='pinch'?10:0;
    const apply=(amount,adjust=[0,0,0])=>{
     for(let j=0;j<3;j++){
@@ -346,7 +346,7 @@ export class Skin {
     const evaluate=values=>{
      for(let j=0;j<3;j++){
       const b=joints[j],parent=this.worldOf(b.parent);
-      const q=this.motion.limit(b,j===2?desiredBot:parent.q.clone().multiply(values[j]),parent.q);
+      const q=this.motion.limit(b,parent.q.clone().multiply(values[j]),parent.q);
       this.wants.set(b,{p:this.worldOf(b).p.clone(),q});this.world.clear();
      }
      const middle=this.worldOf(midB).p,clear=middle.clone().sub(wallPoint).dot(out);
@@ -366,7 +366,7 @@ export class Skin {
     let cost=evaluate(locals);
     if(joints.every(b=>this.motion.previous.has(b))){const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);if(score<=cost){locals=previous;cost=score;}evaluate(locals);}
 
-    for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<2;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
+    for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
      let chosen=locals;
      for(const sign of [-1,1]){
       const candidate=locals.map(q=>q.clone());candidate[j].multiply(new THREE.Quaternion().setFromAxisAngle(axis,sign*degrees*Math.PI/180));
@@ -386,10 +386,10 @@ export class Skin {
     if(l>=2&&!p.hand.held || l<2&&p.foot.held===false)continue;
     const bone=this.bone[name+(l<2?'SoleContact':'HandMiddle1')];
     if(!bone)continue;
-    const target=l<2?three(p.foot.toe):three(p.hand.contact),w=l<2?1:2;
+    const target=l<2?three(p.foot.toe):three(p.hand.contact),w=2;
     correction.addScaledVector(target.sub(this.worldOf(bone).p),w);weight+=w;
    }
-   if(weight){correction.divideScalar(weight);if(correction.length()>.005)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.08*delta)).clampLength(0,.12);}
+   if(weight){correction.divideScalar(weight);if(correction.length()>.005)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.08*delta)).clampLength(0,.18);}
   }
 		// write local transforms: driven bones use their wanted world transform, the rest keep bind locals
 		this.world.clear();

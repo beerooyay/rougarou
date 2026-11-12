@@ -80,7 +80,7 @@ export class HumanMotion {
    const left=name.startsWith('Left'),arm=alias.includes('Upperarm')||alias.includes('Clavicle');
    const out=arm?refUp:alias.includes('Thigh')||alias.includes('Calf')?refSide.clone().multiplyScalar(left?1:-1):refSide;
    if(S.clone().cross(T).dot(out)<0)S.negate();
-   const inv=here.q.clone().invert();this.frames.set(b,{T:T.applyQuaternion(inv),F:F.applyQuaternion(inv),S:S.applyQuaternion(inv),side:left?-1:1,euler:alias.includes('Thigh')||alias.includes('Upperarm')});this.bounds.set(b,bound);
+   const inv=here.q.clone().invert();this.frames.set(b,{T:T.applyQuaternion(inv),F:F.applyQuaternion(inv),S:S.applyQuaternion(inv),side:left?-1:1,euler:alias.includes('Thigh')});this.bounds.set(b,bound);
   }
  }
  limit(b,world,parent,temporal=true) {
@@ -94,9 +94,25 @@ export class HumanMotion {
   // another candidate. Search iterations cannot spend the frame's motion budget twice.
   const previous=this.previous.get(b);
   if(temporal && previous && this.step>0){
-   const rate=/UpLeg|Leg$/.test(b.name)?3:/Spine|Neck|Head/.test(b.name)?3:6;
+   const rate=/UpLeg|Leg$|Foot|Toe/.test(b.name)?3:/Spine|Neck|Head/.test(b.name)?3:6;
    const angle=previous.angleTo(result),cap=rate*Math.min(this.step,.05);
-   if(angle>1e-8)result=previous.clone().slerp(result,Math.min(1-Math.exp(-12*Math.min(this.step,.05)),cap/angle));
+   if(angle>1e-8){
+    let alpha=Math.min(1-Math.exp(-12*Math.min(this.step,.05)),cap/angle);
+    const target=result;
+    result=previous.clone().slerp(target,alpha);
+    // Project each intermediate pose into the joint envelope, then shorten
+    // the step if that projection would exceed the motion budget.
+    if(this.bounds.has(b)){
+     const neutral=this.neutral.get(b),frame=this.frames.get(b),bounds=this.bounds.get(b);
+     for(let i=0;i<16;i++){
+      const rel=neutral.clone().invert().multiply(result);
+      const legal=neutral.clone().multiply(clampRel(rel,frame,bounds).q).normalize();
+      if(previous.angleTo(legal)<=cap+1e-6){result=legal;break;}
+      alpha*=.5;result=previous.clone().slerp(target,alpha);
+      if(i===15)result=previous.clone();
+     }
+    }
+   }
   }
   return parent.clone().multiply(result).normalize();
  }

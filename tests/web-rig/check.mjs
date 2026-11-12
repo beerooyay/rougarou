@@ -4,7 +4,8 @@ import {fileURLToPath} from 'node:url';
 import * as T from 'three';
 import {Skin} from '../../web/skin.js';
 import {Climber} from '../../web/climber.js';
-import {Sim} from '../../web/sim.js';
+import {Sim,Vec2} from '../../web/sim.js';
+import {clampRel} from '../../web/human-motion.js';
 import {problems,routeHolds} from '../../web/gym.js';
 const root=fileURLToPath(new URL('../../web/',import.meta.url));
 function rig(){const data=fs.readFileSync(root+'models/blaize-player.glb'),g=JSON.parse(data.subarray(20,20+data.readUInt32LE(12))),joints=new Set(g.skins.flatMap(s=>s.joints));const nodes=g.nodes.map((n,i)=>{const b=joints.has(i)?new T.Bone():new T.Object3D();b.name=n.name||'';if(n.translation)b.position.fromArray(n.translation);if(n.rotation)b.quaternion.fromArray(n.rotation);if(n.scale)b.scale.fromArray(n.scale);return b;});g.nodes.forEach((n,i)=>n.children?.forEach(c=>nodes[i].add(nodes[c])));const scene=new T.Scene(),model=new T.Group();g.scenes[g.scene||0].nodes.forEach(i=>model.add(nodes[i]));return {scene,skin:new Skin({scene:model},scene,JSON.parse(fs.readFileSync(root+'human-motion.json')))};}
@@ -55,4 +56,40 @@ for(const limb of [0,1,2,3]){
  const flex=open.angleTo(digit.quaternion)*180/Math.PI;
  assert(flex>15,`finger stuck between free and crimp: ${flex} degrees`);
  console.log({fingerFlexDegrees:flex,supportTransitions:'passed'});
+}
+
+// Matching a high hand exposed a shoulder-limit violation between legal targets.
+// Follow that with high steps and measure the actual shoe, not the sim's tip.
+{
+ const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);
+ const shifts=[new Vec2(-1,0),new Vec2(1,0),new Vec2(0,1)];
+ let pose,violation=0;
+ const draw=()=>{skin.pose(pose,1/60);for(const [b,bound] of skin.motion.bounds){
+  const rel=skin.motion.neutral.get(b).clone().invert().multiply(b.quaternion);
+  violation=Math.max(violation,clampRel(rel,skin.motion.frames.get(b),bound).q.angleTo(rel)*180/Math.PI);
+ }};
+ const tick=()=>{sim.step(1/60);pose=c.climbPose(sim,-1,1/60);draw();};
+ const errors=[];
+ for(const [lean,limb,hold] of [[2,2,7],[0,3,7],[-1,1,6],[2,0,2]]){
+  if(lean>=0){sim.lean=shifts[lean].mul(.6);for(let i=0;i<30;i++)tick();sim.lean=new Vec2();}
+  assert(sim.grab(limb,hold),'fixture hold must be reachable');
+  for(let i=0;i<45;i++)tick();
+  for(let i=0;i<120;i++)draw();
+  skin.root.updateMatrixWorld(true);
+  if(limb<2){const target=pose.limbs[limb].foot.toe;
+   const shoe=skin.bone[(limb%2?'Left':'Right')+'SoleContact'].getWorldPosition(new T.Vector3());
+   const error=shoe.distanceTo(new T.Vector3(-target.y/100,target.z/100,target.x/100))*100;
+   errors.push(error);assert(error<6,`high-step shoe missed by ${error} cm`);
+  }
+ }
+ assert(violation<.1,`joint escaped limits by ${violation} degrees`);
+ console.log({highStepSoleErrorsCm:errors,maxJointLimitErrorDegrees:violation});
+}
+// The inverse click mapping must round-trip across different hold sizes/angles.
+{
+ const sim=new Sim(routes);
+ for(const route of routes)for(const hold of route.holds)for(const across of [-.8,0,.8]){
+  const point=sim.gripPoint(hold,across),side=new Vec2(-hold.pull.y,hold.pull.x).norm();
+  assert(Math.abs(point.sub(hold.point).dot(side)/sim.gripWidth(hold)-across)<1e-8);
+ }
 }
