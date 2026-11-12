@@ -102,3 +102,25 @@ for(const limb of [0,1,2,3]){
   assert(Math.abs(point.sub(hold.point).dot(side)/sim.gripWidth(hold)-across)<1e-8);
  }
 }
+
+// A sole point alone can pass while the ankle rolls the shoe sideways.
+// Exercise both feet stepping up and returning to either edge of the start hold.
+for(const limb of [0,1])for(const across of [-1,1]){
+ const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);let pose;
+ const tick=n=>{for(let f=0;f<n;f++){sim.step(1/60);pose=c.climbPose(sim,-1,1/60);skin.pose(pose,1/60);}};
+ tick(90);
+ assert(sim.grab(limb,4,across),'step fixture must be reachable');tick(90);
+ assert(sim.grab(limb,limb,across),'return fixture must be reachable');tick(90);
+ skin.root.updateMatrixWorld(true);
+ const feet=[0,1].map(l=>{
+  const side=l?'Left':'Right',foot=skin.bone[side+'Foot'],part=pose.limbs[l].foot;
+  const forward=skin.motion.front.clone().applyQuaternion(skin.restWorld.get(foot).q.clone().invert()).applyQuaternion(foot.getWorldQuaternion(new T.Quaternion()));
+  const wanted=part.toe.sub(part.heel),target=new T.Vector3(-part.toe.y/100,part.toe.z/100,part.toe.x/100);
+  const angle=forward.angleTo(new T.Vector3(-wanted.y,wanted.z,wanted.x))*180/Math.PI;
+  const miss=skin.bone[side+'SoleContact'].getWorldPosition(new T.Vector3()).distanceTo(target)*100;
+  assert(angle<30,`${side} shoe rolled away after step/return: ${angle} degrees`);
+  assert(miss<1.5,`${side} sole missed after step/return: ${miss} cm`);
+  return {side,angle,miss};
+ });
+ console.log({stepReturn:{limb,across,feet}});
+}

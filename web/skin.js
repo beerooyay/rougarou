@@ -367,7 +367,9 @@ export class Skin {
      let continuity=0;
      for(const b of joints){const previous=this.motion.previous.get(b);if(previous){const local=this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q);continuity+=10*previous.angleTo(local)**2;}}
      const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
-     return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?2:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
+     // Preserve the shoe frame as well as its toe point: a point-only fit
+     // can roll the ankle and turn the entire planted leg sideways.
+     return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?180:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
     let cost=evaluate(locals);
     if(joints.every(b=>this.motion.previous.has(b))){const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);if(score<=cost){locals=previous;cost=score;}evaluate(locals);}

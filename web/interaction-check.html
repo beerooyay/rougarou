@@ -32,6 +32,10 @@ async function ready(){
   if(renderedStepCm>2)throw Error('new hold snapped pelvis '+renderedStepCm+' cm');
   if(g.sim.grips[2]!==4)throw Error('test hold was not selected');
   rows.push({newHold:4,renderedStepCm});
+  g.sim.restart();g.climber.reset();g.tick(3);
+  if(!g.sim.grab(1,4,1))throw Error('foot step unreachable');g.tick(1.5);
+  if(!g.sim.grab(1,1,1))throw Error('foot return unreachable');g.tick(1.5);
+  rows.push({footStepAndReturn:'completed'});
   report.textContent='PASS\n'+JSON.stringify(rows,null,2);
  }catch(error){report.textContent='FAIL '+error.stack;}
 }
