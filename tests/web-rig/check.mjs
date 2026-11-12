@@ -63,8 +63,16 @@ for(const limb of [0,1,2,3]){
 {
  const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);
  const shifts=[new Vec2(-1,0),new Vec2(1,0),new Vec2(0,1)];
- let pose,violation=0;
- const draw=()=>{skin.pose(pose,1/60);for(const [b,bound] of skin.motion.bounds){
+ let pose,violation=0,worstInward=0;
+ const draw=()=>{skin.pose(pose,1/60);
+  skin.root.updateMatrixWorld(true);
+  const axis=skin.bone.LeftUpLeg.getWorldPosition(new T.Vector3()).sub(skin.bone.RightUpLeg.getWorldPosition(new T.Vector3())).normalize();
+  for(const [side,sign] of [['Right',-1],['Left',1]]){
+   const knee=skin.bone[side+'Leg'].getWorldPosition(new T.Vector3()),hip=skin.bone[side+'UpLeg'].getWorldPosition(new T.Vector3());
+   worstInward=Math.max(worstInward,-knee.sub(hip).dot(axis)*sign*100);
+  }
+  assert(skin.bodyOffset.dot(new T.Vector3(-pose.back.y,pose.back.z,pose.back.x))>=-1e-7,'contact correction cancelled hip clearance');
+  for(const [b,bound] of skin.motion.bounds){
   const rel=skin.motion.neutral.get(b).clone().invert().multiply(b.quaternion);
   violation=Math.max(violation,clampRel(rel,skin.motion.frames.get(b),bound).q.angleTo(rel)*180/Math.PI);
  }};
@@ -83,7 +91,8 @@ for(const limb of [0,1,2,3]){
   }
  }
  assert(violation<.1,`joint escaped limits by ${violation} degrees`);
- console.log({highStepSoleErrorsCm:errors,maxJointLimitErrorDegrees:violation});
+ assert(worstInward<4,`knee collapsed inward ${worstInward} cm`);
+ console.log({highStepSoleErrorsCm:errors,maxJointLimitErrorDegrees:violation,worstInwardKneeCm:worstInward});
 }
 // The inverse click mapping must round-trip across different hold sizes/angles.
 {

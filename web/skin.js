@@ -10,6 +10,8 @@ import { HumanMotion } from './human-motion.js';
 import { GarmentPhysics,garmentNames } from './garment-physics.js';
 
 const three = (v) => new THREE.Vector3(...toThree(v));
+// Directions change axes, never units. Positions above convert cm to meters.
+const unit = (v) => new THREE.Vector3(-v.y,v.z,v.x).normalize();
 const sideOf = (limb) => limb % 2 === 0 ? -1 : 1;
 // x = the segment direction, y hint orthogonalized into the facing; an orthonormal frame for each bone
 const frame = (x, y) => {
@@ -132,7 +134,7 @@ export class Skin {
 	}
 
  fitFingers(side,hand) {
-  const surface=hand.surface,over=three(hand.over),inside=three(hand.out).negate();
+  const surface=hand.surface,over=unit(hand.over),inside=unit(hand.out).negate();
   const clear=p=>surface?surface.clear(new Vec3(p.z*100,-p.x*100,p.y*100)):100;
   const rest=this.restWorld,world=b=>this.worldOf(b),chain=f=>[1,2,3].map(j=>this.bone[`${side}Hand${f}${j}`]);
   const tipOf=ch=>{
@@ -225,10 +227,12 @@ export class Skin {
 		const chest = three(pose.roots[2].add(pose.roots[3]).mul(0.5));
   if(this.rawPelvis&&this.rawPelvis.distanceTo(pelvis)>1)this.bodyOffset.set(0,0,0);
   this.rawPelvis=pelvis.clone();
+  const wallOut=unit(pose.back),lostClearance=this.bodyOffset.dot(wallOut);
+  if(lostClearance<0)this.bodyOffset.addScaledVector(wallOut,-lostClearance);
   if(!walking){pelvis.add(this.bodyOffset);chest.add(this.bodyOffset);}
 		const up = chest.clone().sub(pelvis).normalize();
 		const side = three(pose.roots[3].sub(pose.roots[2])).normalize();
-		const back = three(pose.back);
+		const back = unit(pose.back);
 		// the component transform: rest torso frame to this frame's torso
 		const from = frame(this.refSide, this.refUp);
 		const to = frame(side, up);
@@ -288,7 +292,7 @@ export class Skin {
 			const hint = leg ? start.clone().add(knee(side, up, back, sideOf(limb), height).multiplyScalar(1))
 				: start.clone().add(three(part.bend.sub(pose.roots[limb])));
 			let ik = solve(start, end, hint, one, two);
-			const out = three(leg ? pose.back : part.hand.out);
+			const out = unit(leg ? pose.back : part.hand.out);
 			// Search the elbow/knee's swivel while measuring the constrained FK,
 			// rather than choosing an unconstrained bend and stretching to it.
 			const axis=ik.end.clone().sub(start).normalize(),center=start.clone().addScaledVector(axis,ik.bend.clone().sub(start).dot(axis));
@@ -317,7 +321,8 @@ export class Skin {
     if(leg){const parent=this.worldOf(bot.parent);this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q)});this.world.clear();}
     const sole=leg?this.bone[(limb===0?'Right':'Left')+'SoleContact']:null;
     const actual=this.worldOf(sole||bot).p,targetPoint=sole?three(part.foot.toe):end,depth=middle.clone().sub(wallPoint).dot(out);
-				const cost=actual.distanceToSquared(targetPoint)*(leg?100000:300)+(walking?0:Math.max(0,(leg?.10:.07)-depth)**2*10000)+.05*angle**2;
+				const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
+				const cost=kneePenalty+actual.distanceToSquared(targetPoint)*(leg?100000:300)+(walking?0:Math.max(0,(leg?.10:.07)-depth)**2*10000)+.05*angle**2;
 				return {bend,cost};
 			};
 			let chosen=this.swivels[limb],best=trySwivel(chosen);
@@ -361,7 +366,8 @@ export class Skin {
      }
      let continuity=0;
      for(const b of joints){const previous=this.motion.previous.get(b);if(previous){const local=this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q);continuity+=10*previous.angleTo(local)**2;}}
-     return continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?2:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
+     const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
+     return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?2:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
     let cost=evaluate(locals);
     if(joints.every(b=>this.motion.previous.has(b))){const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);if(score<=cost){locals=previous;cost=score;}evaluate(locals);}
@@ -389,7 +395,14 @@ export class Skin {
     const target=l<2?three(p.foot.toe):three(p.hand.contact),w=2;
     correction.addScaledVector(target.sub(this.worldOf(bone).p),w);weight+=w;
    }
-   if(weight){correction.divideScalar(weight);if(correction.length()>.005)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.08*delta)).clampLength(0,.18);}
+   if(weight){
+    correction.divideScalar(weight);
+    // Contact fitting may shift weight along the wall, but cannot silently
+    // cancel the pelvis clearance selected by the climbing pose.
+    const inward=correction.dot(back);
+    if(inward<0)correction.addScaledVector(back,-inward);
+    if(correction.length()>.005)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.06*delta)).clampLength(0,.12);
+   }
   }
 		// write local transforms: driven bones use their wanted world transform, the rest keep bind locals
 		this.world.clear();

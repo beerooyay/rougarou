@@ -1,0 +1,39 @@
+<!doctype html><meta charset="utf-8"><title>Rougarou selection regression</title>
+<pre id="report">loading game and native rig…</pre>
+<iframe id="game" src="./?route=0" style="width:400px;height:700px;border:0"></iframe>
+<script type="module">
+const frame=document.querySelector('#game'),report=document.querySelector('#report');
+async function ready(){
+ const w=frame.contentWindow,g=w.rougarou;
+ if(!g || g.climber.group.visible){requestAnimationFrame(ready);return;}
+ try{
+  g.freeze=true;g.tick(4);
+  const rows=[],hips=g.scene.getObjectByName("Hips");
+  if(!hips)throw Error("native pelvis bone missing");
+  for(let l=0;l<4;l++){
+   const renderedBefore=hips.getWorldPosition(new g.THREE.Vector3());
+   const before=g.pose.roots[0],grips=JSON.stringify(g.sim.grips),camera=g.camera.position.clone();
+   g.lift(l);g.tick(1/60);
+   const displacement=g.pose.roots[0].sub(before).len();
+   if(JSON.stringify(g.sim.grips)!==grips)throw Error('selection released support '+l);
+   if(displacement>1)throw Error('selection moved pelvis '+displacement+' cm');
+   if(camera.distanceTo(g.camera.position)>1e-8)throw Error('selection moved camera');
+   if(!g.climber.marker.visible)throw Error('selection marker hidden');
+   const renderedStepCm=renderedBefore.distanceTo(hips.getWorldPosition(new g.THREE.Vector3()))*100;
+   if(renderedStepCm>1)throw Error("rendered pelvis jumped "+renderedStepCm+" cm");
+   rows.push({limb:l,pelvisStepCm:displacement,renderedStepCm});
+   w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape'}));g.tick(.2);
+  }
+  // A new hold must also preserve root continuity when its support changes.
+  const renderedBefore=hips.getWorldPosition(new g.THREE.Vector3());
+  g.lift(2);
+  const hit=g.screenOf(g.sim.holds()[4].point);g.place(hit.x,hit.y);g.tick(1/60);
+  const renderedStepCm=renderedBefore.distanceTo(hips.getWorldPosition(new g.THREE.Vector3()))*100;
+  if(renderedStepCm>2)throw Error('new hold snapped pelvis '+renderedStepCm+' cm');
+  if(g.sim.grips[2]!==4)throw Error('test hold was not selected');
+  rows.push({newHold:4,renderedStepCm});
+  report.textContent='PASS\n'+JSON.stringify(rows,null,2);
+ }catch(error){report.textContent='FAIL '+error.stack;}
+}
+frame.addEventListener('load',ready);
+</script>

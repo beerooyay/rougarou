@@ -94,7 +94,7 @@ export class HumanMotion {
   // another candidate. Search iterations cannot spend the frame's motion budget twice.
   const previous=this.previous.get(b);
   if(temporal && previous && this.step>0){
-   const rate=/UpLeg|Leg$|Foot|Toe/.test(b.name)?3:/Spine|Neck|Head/.test(b.name)?3:6;
+   const rate=/UpLeg|Leg$|Foot|Toe/.test(b.name)?2.5:/Spine|Neck|Head/.test(b.name)?3:6;
    const angle=previous.angleTo(result),cap=rate*Math.min(this.step,.05);
    if(angle>1e-8){
     let alpha=Math.min(1-Math.exp(-12*Math.min(this.step,.05)),cap/angle);
