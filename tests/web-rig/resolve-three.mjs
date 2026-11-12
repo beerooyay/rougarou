@@ -1,0 +1,1 @@
+export function resolve(s,c,n){if(s==='three')return {url:new URL('./node_modules/three/build/three.module.js',import.meta.url).href,shortCircuit:true};if(s.startsWith('three/addons/'))return {url:new URL('./node_modules/three/examples/jsm/'+s.slice(13),import.meta.url).href,shortCircuit:true};return n(s,c);}

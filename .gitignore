@@ -15,3 +15,6 @@ unity/Assets/Resources/blaize.fbx.meta
 assets/
 web/models/hands.glb
 web/models/corey-player.glb
+
+# Local regression-test dependencies
+node_modules/

@@ -84,10 +84,21 @@ export class HumanMotion {
   }
  }
  limit(b,world,parent) {
-  if(!this.bounds.has(b))return world;
-  const neutral=this.neutral.get(b),local=parent.clone().invert().multiply(world);
-  const rel=neutral.clone().invert().multiply(local);
-  return parent.clone().multiply(neutral).multiply(clampRel(rel,this.frames.get(b),this.bounds.get(b)).q).normalize();
+  const local=parent.clone().invert().multiply(world);
+  let result=local;
+  if(this.bounds.has(b)){
+   const neutral=this.neutral.get(b),rel=neutral.clone().invert().multiply(local);
+   result=neutral.clone().multiply(clampRel(rel,this.frames.get(b),this.bounds.get(b)).q).normalize();
+  }
+  // Every candidate is measured against the last rendered pose, never against
+  // another candidate. Search iterations cannot spend the frame's motion budget twice.
+  const previous=this.previous.get(b);
+  if(previous && this.step>0){
+   const rate=/UpLeg|Leg$/.test(b.name)?3:/Spine|Neck|Head/.test(b.name)?3:6;
+   const angle=previous.angleTo(result),cap=rate*Math.min(this.step,.05);
+   if(angle>1e-8)result=previous.clone().slerp(result,Math.min(1-Math.exp(-12*Math.min(this.step,.05)),cap/angle));
+  }
+  return parent.clone().multiply(result).normalize();
  }
  // Blend unplanted motion after FK/IK. Pinned chains were already constrained
  // by the contact solve; changing them here would invalidate the fit.

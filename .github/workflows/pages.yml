@@ -27,6 +27,8 @@ jobs:
           node-version: 22
       # every problem must still be sendable before the web build goes out
       - run: node web/check.mjs
+      - run: npm ci --prefix tests/web-rig
+      - run: npm test --prefix tests/web-rig
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

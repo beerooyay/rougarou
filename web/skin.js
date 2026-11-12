@@ -152,7 +152,7 @@ export class Skin {
      const target=over.clone().multiplyScalar(Math.cos(a)).addScaledVector(inside,Math.sin(a)).normalize();
      const turn=new THREE.Quaternion().setFromUnitVectors(axis,target),cap=[48,100,85][j]*Math.PI/180;
      const q=new THREE.Quaternion().slerp(turn,Math.min(1,cap/Math.max(.001,new THREE.Quaternion().angleTo(turn)))).multiply(carried);
-     this.wants.set(b,{p:world(b).p.clone(),q});this.world.clear();
+     this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q)});this.world.clear();
     }
     const points=ch.map(b=>world(b).p.clone());points.push(tipOf(ch));
     let gap=Infinity;
@@ -191,7 +191,7 @@ export class Skin {
     const parent=world(b.parent),r=this.restLocal.get(b),carried=parent.q.clone().multiply(r.q);
     const axis=over.clone().cross(inside).normalize().applyQuaternion(carried.clone().invert());
     const q=carried.multiply(new THREE.Quaternion().setFromAxisAngle(axis,amount*(j===0?12:16)*Math.PI/180));
-    this.wants.set(b,{p:world(b).p.clone(),q});this.world.clear();
+    this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q)});this.world.clear();
    }
    const points=thumb.map(b=>world(b).p.clone());points.push(tipOf(thumb));
    return Math.min(...points.map(clear),...points.slice(1).map((p,i)=>clear(p.clone().lerp(points[i],.5))));
@@ -207,6 +207,8 @@ export class Skin {
  }
 
 	pose(pose,delta=1/60,walking=false) {
+  if(delta<=0 && this.motion.previous.size && this.wasWalking===walking)return;
+  this.motion.step=delta;
 		if(this.wasWalking!==walking){this.motion.reset();this.garments.reset();this.bodyOffset.set(0,0,0);this.wasWalking=walking;}
 		this.world.clear(); this.wants.clear();
 		const pelvis = three(pose.roots[0].add(pose.roots[1]).mul(0.5));
@@ -224,7 +226,7 @@ export class Skin {
 		const hips = this.bone['Hips'], restHips = this.restWorld.get(hips);
 		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1){this.motion.reset();}
 		this.lastPelvis=pelvis.clone();
-		this.wants.set(hips, { p: pelvis, q: turn.clone().multiply(restHips.q) });
+		this.wants.set(hips, { p: pelvis, q: this.motion.limit(hips,turn.clone().multiply(restHips.q),this.base.q) });
 		const mix=this.motion.profile.native_mix,front=this.motion.front;
 		const lift=[2,3].map(l=>Math.max(0,Math.min(1,three(pose.limbs[l].end).sub(three(pose.roots[l])).dot(up)/.5)));
 		const extension=(pose.back.z < -.05 ? 16 : 8)*Math.PI/180*Math.min(1,(lift[0]+lift[1])*.55),lateral=12*Math.PI/180*(lift[0]-lift[1]);
@@ -309,7 +311,9 @@ export class Skin {
 				return {bend,cost};
 			};
 			let chosen=this.swivels[limb],best=trySwivel(chosen);
-			for(let i=0;i<36;i++){const angle=-Math.PI+2*Math.PI*i/36,candidate=trySwivel(angle);if(candidate.cost<best.cost){chosen=angle;best=candidate;}}
+			if(!this.motion.previous.size){
+    for(let i=0;i<36;i++){const angle=-Math.PI+2*Math.PI*i/36,candidate=trySwivel(angle);if(candidate.cost<best.cost){chosen=angle;best=candidate;}}
+   }else for(const offset of [-.1,-.05,.05,.1]){const angle=this.swivels[limb]+offset,candidate=trySwivel(angle);if(candidate.cost+.0001<best.cost){chosen=angle;best=candidate;}}
 			const diff=Math.atan2(Math.sin(chosen-this.swivels[limb]),Math.cos(chosen-this.swivels[limb]));
 			if(this.motion.previous.size && !leg && !part.hand.held)chosen=this.swivels[limb]+Math.max(-6*delta,Math.min(6*delta,diff));
 			this.swivels[limb]=chosen;ik.bend=trySwivel(chosen).bend;
@@ -345,9 +349,12 @@ export class Skin {
        palmPenalty+=Math.max(0,.014-clearance)**2*80000;
       }
      }
-     return this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?2:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
+     let continuity=0;
+     for(const b of joints){const previous=this.motion.previous.get(b);if(previous){const local=this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q);continuity+=10*previous.angleTo(local)**2;}}
+     return continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?2:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
     let cost=evaluate(locals);
+    if(joints.every(b=>this.motion.previous.has(b))){const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);if(score<=cost){locals=previous;cost=score;}evaluate(locals);}
 
     for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<2;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
      let chosen=locals;
@@ -372,7 +379,7 @@ export class Skin {
     const target=l<2?three(p.foot.toe):three(p.hand.contact),w=l<2?1:2;
     correction.addScaledVector(target.sub(this.worldOf(bone).p),w);weight+=w;
    }
-   if(weight)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*12)/weight).clampLength(0,.015)).clampLength(0,.12);
+   if(weight){correction.divideScalar(weight);if(correction.length()>.005)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.08*delta)).clampLength(0,.12);}
   }
 		// write local transforms: driven bones use their wanted world transform, the rest keep bind locals
 		this.world.clear();

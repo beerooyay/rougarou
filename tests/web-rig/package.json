@@ -1,0 +1,1 @@
+{"name":"rougarou-rig-check","private":true,"type":"module","scripts":{"test":"node --import ./register.mjs check.mjs"},"devDependencies":{"three":"0.169.0"}}

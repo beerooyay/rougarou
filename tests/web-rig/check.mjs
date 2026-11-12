@@ -1,0 +1,30 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+import * as T from 'three';
+import {Skin} from '../../web/skin.js';
+import {Climber} from '../../web/climber.js';
+import {Sim} from '../../web/sim.js';
+import {problems,routeHolds} from '../../web/gym.js';
+const root=fileURLToPath(new URL('../../web/',import.meta.url));
+function rig(){const data=fs.readFileSync(root+'models/blaize-player.glb'),g=JSON.parse(data.subarray(20,20+data.readUInt32LE(12))),joints=new Set(g.skins.flatMap(s=>s.joints));const nodes=g.nodes.map((n,i)=>{const b=joints.has(i)?new T.Bone():new T.Object3D();b.name=n.name||'';if(n.translation)b.position.fromArray(n.translation);if(n.rotation)b.quaternion.fromArray(n.rotation);if(n.scale)b.scale.fromArray(n.scale);return b;});g.nodes.forEach((n,i)=>n.children?.forEach(c=>nodes[i].add(nodes[c])));const scene=new T.Scene(),model=new T.Group();g.scenes[g.scene||0].nodes.forEach(i=>model.add(nodes[i]));return {scene,skin:new Skin({scene:model},scene,JSON.parse(fs.readFileSync(root+'human-motion.json')))};}
+const routes=problems();routes.forEach(routeHolds);
+for(const mode of ['frozen','release','live']){
+ const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);let frozenPose=null,previous=null,max=0,culprit='',jump=0,late=0;
+ for(let f=0;f<300;f++){
+  if(mode==='release'&&f===90)sim.drop(1);
+  if(mode!=='frozen')sim.step(1/60);
+  const pose=mode==='frozen'&&frozenPose?frozenPose:c.climbPose(sim,-1,1/60);if(mode==='frozen'&&f===60)frozenPose=pose;skin.pose(pose,1/60);
+  skin.root.updateMatrixWorld(true);
+  const now=skin.order.map(b=>({q:b.quaternion.clone(),p:b.getWorldPosition(new T.Vector3())}));
+  if(previous&&f>60)for(let i=0;i<now.length;i++){if(/Hem|Cloth|Shirt/.test(skin.order[i].name))continue;const a=previous[i].q.angleTo(now[i].q)*180/Math.PI;if(f>240)late=Math.max(late,a);if(a>max){max=a;culprit=skin.order[i].name+' frame '+f;}jump=Math.max(jump,previous[i].p.distanceTo(now[i].p)*100);}
+  previous=now;
+ }
+ assert(max<5.731, `${mode}: joint snapped ${max} degrees (${culprit})`);
+ assert(jump<6, `${mode}: landmark jumped ${jump} cm`);
+ if(mode==='frozen')assert(late<1, `stationary rig keeps twitching: ${late} degrees`);
+ const before=skin.order.map(b=>b.quaternion.clone());
+ skin.pose(frozenPose||c.climbPose(sim,-1,0),0);
+ skin.order.forEach((b,i)=>assert(before[i].equals(b.quaternion), `paused ${b.name} moved`));
+ console.log({mode,maxDegrees:max,maxMoveCm:jump,lateDegrees:late,culprit});
+}
