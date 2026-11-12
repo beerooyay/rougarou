@@ -139,6 +139,14 @@ export class Skin {
    const last=ch[2],offset=rest.get(last).p.clone().sub(rest.get(ch[1]).p).applyQuaternion(rest.get(last).q.clone().invert());
    return world(last).p.clone().add(offset.multiplyScalar(.8).applyQuaternion(world(last).q));
   };
+  // Fit the full target first. Applying velocity limits during candidate search
+  // makes every candidate look like the previous open hand and traps the fit.
+  const settle=ch=>{
+   const locals=ch.map(b=>world(b.parent).q.clone().invert().multiply(world(b).q));
+   ch.forEach((b,j)=>{const parent=world(b.parent),q=parent.q.clone().multiply(locals[j]);
+    this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q)});this.world.clear();
+   });
+  };
   for(const finger of Fingers){
    const ch=chain(finger);if(ch.some(b=>!b))continue;
    const angles=hand.grip==='crimp'?[12,80,55]:hand.grip==='jug'?[16,58,76]:hand.grip==='pinch'?[20,45,64]:hand.grip==='sloper'?[0,4,8]:[8,16,24];
@@ -152,7 +160,7 @@ export class Skin {
      const target=over.clone().multiplyScalar(Math.cos(a)).addScaledVector(inside,Math.sin(a)).normalize();
      const turn=new THREE.Quaternion().setFromUnitVectors(axis,target),cap=[48,100,85][j]*Math.PI/180;
      const q=new THREE.Quaternion().slerp(turn,Math.min(1,cap/Math.max(.001,new THREE.Quaternion().angleTo(turn)))).multiply(carried);
-     this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q)});this.world.clear();
+     this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q,false)});this.world.clear();
     }
     const points=ch.map(b=>world(b).p.clone());points.push(tipOf(ch));
     let gap=Infinity;
@@ -182,6 +190,7 @@ export class Skin {
     }
     apply(best,offsets);
    }
+   settle(ch);
   }
   // Thumb motion is relative to its own bind frame, not a wall-facing finger axis.
   const thumb=chain('Thumb');if(thumb.some(b=>!b))return;
@@ -191,7 +200,7 @@ export class Skin {
     const parent=world(b.parent),r=this.restLocal.get(b),carried=parent.q.clone().multiply(r.q);
     const axis=over.clone().cross(inside).normalize().applyQuaternion(carried.clone().invert());
     const q=carried.multiply(new THREE.Quaternion().setFromAxisAngle(axis,amount*(j===0?12:16)*Math.PI/180));
-    this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q)});this.world.clear();
+    this.wants.set(b,{p:world(b).p.clone(),q:this.motion.limit(b,q,parent.q,false)});this.world.clear();
    }
    const points=thumb.map(b=>world(b).p.clone());points.push(tipOf(thumb));
    return Math.min(...points.map(clear),...points.slice(1).map((p,i)=>clear(p.clone().lerp(points[i],.5))));
@@ -204,6 +213,7 @@ export class Skin {
    if(gap>=.9)break;
   }
   applyThumb(best);
+  settle(thumb);
  }
 
 	pose(pose,delta=1/60,walking=false) {

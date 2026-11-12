@@ -179,6 +179,13 @@ for (const l of gym.lights) {
 }
 
 const climber = new Climber(scene);
+// Selection UI must survive hiding the procedural fallback body.
+scene.add(climber.marker);
+climber.marker.geometry.dispose();
+climber.marker.geometry=new THREE.TorusGeometry(.10,.006,8,48);
+climber.marker.material.wireframe=false;
+climber.marker.material.depthTest=false;
+climber.marker.renderOrder=20;
 
 const world = new World(gym.blocks);
 let spots = null;
@@ -393,6 +400,7 @@ let limb = -1;
 // where the lifted limb was, for putting it back
 let previous = -1, previousPlacement = 0, pressed = false, post = new Vec2();
 let aim = new Vec2();
+let selectionOrigin = null, selectionReleased = false;
 const pointer = { x: 0, y: 0, inside: false, touch: false };
 let drag = null, joystick = null, stick = null, looking = null;
 const keys = new Set();
@@ -454,14 +462,15 @@ function pick(px, py) {
 }
 
 function lift(index) {
-	// lifting a limb takes it off the wall: the other three carry the weight from this moment
+	// Selection is not release: keep support until the pointer actually moves.
 	limb = index;
 	previous = sim.grips[index];
 	previousPlacement = sim.placement[index];
 	pressed = sim.smeared[index];
 	post = sim.posts[index].copy();
 	aim = sim.tips[index].copy();
-	sim.drop(index);
+ selectionOrigin = {x:pointer.x,y:pointer.y,lastX:pointer.x,lastY:pointer.y};
+ selectionReleased = false;
 }
 
 function place(x, y) {
@@ -483,12 +492,13 @@ function place(x, y) {
 function cancel() {
 	// put the limb back where it was if the body can still get it there, otherwise it hangs
 	if (limb < 0) return;
+	if (!selectionReleased) { limb = -1; return; }
 	if (previous >= 0) sim.grab(limb, previous, previousPlacement);
 	else if (pressed) sim.smear(limb, post);
 	limb = -1;
 }
 
-function letGo() { limb = -1; }
+function letGo() { if(limb>=0)sim.drop(limb); limb = -1; }
 
 // a fresh go at the current problem: the clock restarts and it counts as an attempt
 function begin() {
@@ -726,6 +736,19 @@ canvas.addEventListener('pointermove', (e) => {
 	}
 	Object.assign(pointer, { x: e.clientX, y: e.clientY, inside: true, touch: e.pointerType !== 'mouse' });
 	if (mode === 'edit') { editor.move(e.clientX, e.clientY); return; }
+ if(mode==='climb' && limb>=0 && selectionOrigin){
+  const moved=Math.hypot(e.clientX-selectionOrigin.x,e.clientY-selectionOrigin.y)>6;
+  if(moved || selectionReleased){
+   const hit=cursor(e.clientX,e.clientY);
+   if(hit){
+    if(!selectionReleased){sim.drop(limb);selectionReleased=true;}
+    // Both rays use the current camera: camera follow must not move the target.
+    const from=cursor(selectionOrigin.lastX,selectionOrigin.lastY);
+    if(from)aim=aim.add(hit.sub(from));
+    selectionOrigin.lastX=e.clientX;selectionOrigin.lastY=e.clientY;
+   }
+  }
+ }
 	if (stick && e.pointerId === stick.id) {
 		stick.dx = e.clientX - stick.x;
 		stick.dy = e.clientY - stick.y;
@@ -928,10 +951,8 @@ function blended(t, draw) {
 
 function climb(delta) {
 	// the lifted hand or foot follows the pointer until the limb runs out of length; on a phone it rides a little above the finger
-	const point = pointer.inside ? cursor(pointer.x, pointer.y - (pointer.touch && drag ? 50 : 0)) : null;
-	if (point && limb >= 0) aim = sim.clamp(limb, point);
-	sim.reaching = limb;
-	sim.target = point && limb >= 0 ? point : aim;
+	sim.reaching = limb >= 0 && selectionReleased ? limb : -1;
+	sim.target = aim;
 	// wasd or the thumbstick drag shifts the hips; the camera sits behind the climber, so screen right is sim -x
 	let lean = fpOn() ? fp.lean.copy() : new Vec2((keys.has('a') ? 1 : 0) - (keys.has('d') ? 1 : 0), (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0));
 	if (joystick) lean = lean.add(new Vec2(-joystick.dx / 70, -joystick.dy / 70)).clampLen(1);
@@ -1006,6 +1027,7 @@ function update(real) {
 	// the setter's view is the wall alone
 	climber.group.visible = mode !== 'edit' && (!skin || fp.k > 0.5);
 	climber.draw(pose);
+ climber.marker.visible = mode==='climb' && limb>=0;
 	if (skin) { skin.root.visible = mode !== 'edit' && fp.k <= 0.5; if (skin.root.visible) skin.pose(pose,delta,mode==='walk'); }
 	chalk.step(delta);
 
@@ -1079,11 +1101,18 @@ function update(real) {
 	climber.away = fp.k;
 	// the hold in the crosshair glows
 	camera.updateMatrixWorld();
+ climber.marker.quaternion.copy(camera.quaternion);
 	fp.hold = fp.k > 0.9 && fpOn() ? holdInSight() : -1;
-	glow.visible = fp.hold >= 0;
+	const hovered={hold:-1};
+ if(mode==='climb' && limb>=0 && pointer.inside && !fpOn())cursor(pointer.x,pointer.y,hovered);
+ const glowHold=fp.hold>=0?fp.hold:hovered.hold;
+ glow.visible = glowHold >= 0;
 	if (glow.visible) {
-		const at = face.map(sim.holds()[fp.hold].point, 8);
+		const at = face.map(sim.holds()[glowHold].point, 8);
 		glow.position.copy(three(at));
+  const contact=sim.gripPoint(sim.holds()[glowHold],clamp(hovered.across||0,-1,1));
+  const reachable=limb<0 || (sim.distance(limb,contact)<=sim.range(limb)+.025 && sim.open(limb,contact));
+  glow.material.color.set(reachable?0xaaffcc:0xff6655);
 		glow.scale.setScalar(Math.max(0.3, at.dist(unreal(camera.position)) * 0.0012) * (1 + 0.07 * Math.sin(climber.clock * 6)));
 		glow.material.opacity = 0.6 + 0.2 * Math.sin(climber.clock * 6);
 	}
@@ -1121,7 +1150,7 @@ function update(real) {
 	else if (mode === 'fall') status = note;
 	else if (fpOn() && fp.side && performance.now() - fp.at < SIDE_WAIT) status = `${fp.side === 'r' ? 'right' : 'left'}: a for the arm, l for the leg`;
 	else if (fpOn() && fp.hold >= 0 && limb < 0 && !sim.latch.some(v => v < 0)) status = `${sim.holds()[fp.hold].kind}: r or l, then a (arm) or l (leg)`;
-	else if (climbing) status = limb >= 0 ? `${Names[limb]} off the wall` : sliding ? 'fingers sliding: get your feet under you' : sim.topped > 0 && !sim.won ? 'matched the top, hold it...' : (sim.hint || 'pick a hand or foot');
+	else if (climbing) status = limb >= 0 ? `${Names[limb]} ${selectionReleased ? "off the wall" : "selected · move to release"}` : sliding ? 'fingers sliding: get your feet under you' : sim.topped > 0 && !sim.won ? 'matched the top, hold it...' : (sim.hint || 'pick a hand or foot');
 	else if (note && noted < 4) status = note;
 	else if (near) {
 		const r = ui.stats[near.name];

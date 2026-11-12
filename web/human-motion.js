@@ -83,7 +83,7 @@ export class HumanMotion {
    const inv=here.q.clone().invert();this.frames.set(b,{T:T.applyQuaternion(inv),F:F.applyQuaternion(inv),S:S.applyQuaternion(inv),side:left?-1:1,euler:alias.includes('Thigh')||alias.includes('Upperarm')});this.bounds.set(b,bound);
   }
  }
- limit(b,world,parent) {
+ limit(b,world,parent,temporal=true) {
   const local=parent.clone().invert().multiply(world);
   let result=local;
   if(this.bounds.has(b)){
@@ -93,7 +93,7 @@ export class HumanMotion {
   // Every candidate is measured against the last rendered pose, never against
   // another candidate. Search iterations cannot spend the frame's motion budget twice.
   const previous=this.previous.get(b);
-  if(previous && this.step>0){
+  if(temporal && previous && this.step>0){
    const rate=/UpLeg|Leg$/.test(b.name)?3:/Spine|Neck|Head/.test(b.name)?3:6;
    const angle=previous.angleTo(result),cap=rate*Math.min(this.step,.05);
    if(angle>1e-8)result=previous.clone().slerp(result,Math.min(1-Math.exp(-12*Math.min(this.step,.05)),cap/angle));

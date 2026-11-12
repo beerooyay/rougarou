@@ -206,7 +206,7 @@ export class Climber {
 	}
 
 	// forget the eased body shape, for a fresh start on the wall
-	reset() { this.turn = 0; this.hips = 18; this.chestDepth = 22; this.hanging = [0, 0, 0, 0]; this.look = null; this.hem = new Vec3(); this.swing = new Vec3(); this.moving = null; this.last = null; }
+	reset() { this.turn = 0; this.hips = 42; this.bodyRise = 0; this.shoulderRise = 0; this.chestDepth = 22; this.hanging = [0, 0, 0, 0]; this.look = null; this.hem = new Vec3(); this.swing = new Vec3(); this.moving = null; this.last = null; }
 
 	segment(mesh, a, b, radius) {
 		const A = three(a), B = three(b);
@@ -316,8 +316,8 @@ export class Climber {
 		const handSupport = [2, 3].filter(l => on(l) && sim.grips[l] >= 0).length;
 		const stepRise = 12 * highStep * (0.35 + 0.325 * handSupport);
 		const settleDrop = 20 * settleBack * (1 - highStep);
-		const hipDepth = 31 + 22 * compress + 10 * steep * straight + 23 * loose + 30 * peel - 5 * handOff + 5 * footOff + 29 * highStep + 20 * settleBack;
-		this.hips += (hipDepth + 22 * this.away - this.hips) * ease;
+		const hipDepth = 42 + 22 * compress + 10 * steep * straight + 23 * loose + 30 * peel - 5 * handOff + 5 * footOff + 29 * highStep + 20 * settleBack;
+		this.hips += clamp((hipDepth + 22 * this.away - this.hips) * ease,-45*delta,45*delta);
 		let chestDepth = 34;
 		for (const l of [2, 3]) {
 			if (!on(l) || sim.grips[l] < 0) continue;
@@ -326,9 +326,11 @@ export class Climber {
 		}
 		chestDepth = clamp(chestDepth, 18, 34) + 6 * steep + 8 * loose + 25 * peel - 4 * handOff + 3 * footOff + 10 * settleBack;
 		this.chestDepth += (chestDepth + 18 * this.away - this.chestDepth) * Math.min(1, delta * 3);
+		this.bodyRise += clamp((stepRise-settleDrop-this.bodyRise)*(1-Math.exp(-5*delta)),-30*delta,30*delta);
+  this.shoulderRise += clamp((0.45*stepRise-settleDrop-this.shoulderRise)*(1-Math.exp(-5*delta)),-30*delta,30*delta);
 		const roots = [0, 1, 2, 3].map(l => l < 2
-			? at(sim.joint(l), this.hips - 10 * this.turn * sideOf(l)).add(frame.up.mul(stepRise - settleDrop))
-			: at(sim.joint(l), this.chestDepth - 5 * this.turn * sideOf(l)).add(frame.up.mul(0.45 * stepRise - settleDrop)));
+			? at(sim.joint(l), this.hips - 10 * this.turn * sideOf(l)).add(frame.up.mul(this.bodyRise))
+			: at(sim.joint(l), this.chestDepth - 5 * this.turn * sideOf(l)).add(frame.up.mul(this.shoulderRise)));
 		const pelvis = mid(roots[0], roots[1]), chest = mid(roots[2], roots[3]);
 		const up = chest.sub(pelvis).norm();
 		const head = chest.add(up.mul(24)).sub(frame.out.mul(3));

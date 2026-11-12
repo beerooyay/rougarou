@@ -271,7 +271,7 @@ void AClimberActor::Pose()
 	}
 	const float HandSupport = float(On(2) && Sim.Grips[2] >= 0) + float(On(3) && Sim.Grips[3] >= 0);
 	const float StepRise = 12.f * HighStep * (.35f + .325f * HandSupport);
-	HipDepth += (31 + 22 * Compress + 10 * Steep * Straight + 23 * Loose + 30 * Peel - 5 * HandOff + 5 * FootOff + 29 * HighStep + 20 * SettleBack - HipDepth) * Ease;
+	HipDepth += (42 + 22 * Compress + 10 * Steep * Straight + 23 * Loose + 30 * Peel - 5 * HandOff + 5 * FootOff + 29 * HighStep + 20 * SettleBack - HipDepth) * Ease;
 	// the chest hangs back off the wall as far as leaves the more stretched arm nearly straight: hands close in give long
 	// easy arms, hands far apart or high keep the chest in and the arms working
 	float Lean = 34;

@@ -28,3 +28,31 @@ for(const mode of ['frozen','release','live']){
  skin.order.forEach((b,i)=>assert(before[i].equals(b.quaternion), `paused ${b.name} moved`));
  console.log({mode,maxDegrees:max,maxMoveCm:jump,lateDegrees:late,culprit});
 }
+
+// Losing a support used to switch a 20 cm height correction in one frame.
+for(const limb of [0,1,2,3]){
+ const sim=new Sim(routes),c=new Climber(new T.Scene());let pose;
+ for(let f=0;f<180;f++){sim.step(1/60);pose=c.climbPose(sim,-1,1/60);}
+ const before=pose.roots[0];
+ sim.target=sim.tips[limb].copy();
+ const selected=c.climbPose(sim,limb,1/60);
+ assert(selected.roots[0].sub(before).len()<.1,'selection changed body height');
+ sim.drop(limb);sim.reaching=limb;
+ const released=c.climbPose(sim,limb,1/60);
+ assert(released.roots[0].sub(selected.roots[0]).len()<2,'support release snapped pelvis');
+ assert(c.hips>=42,'pelvis lost its wall clearance');
+}
+// A free hand and a crimp must produce distinct articulated finger poses.
+{
+ const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);
+ let pose;
+ for(let f=0;f<120;f++){sim.step(1/60);pose=c.climbPose(sim,-1,1/60);skin.pose(pose,1/60);}
+ const hand=pose.limbs[2].hand;delete hand.surface;
+ const digit=skin.bone.RightHandMiddle2;
+ hand.grip='free';for(let f=0;f<90;f++)skin.pose(pose,1/60);
+ const open=digit.quaternion.clone();
+ hand.grip='crimp';for(let f=0;f<90;f++)skin.pose(pose,1/60);
+ const flex=open.angleTo(digit.quaternion)*180/Math.PI;
+ assert(flex>15,`finger stuck between free and crimp: ${flex} degrees`);
+ console.log({fingerFlexDegrees:flex,supportTransitions:'passed'});
+}
