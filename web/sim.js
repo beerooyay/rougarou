@@ -75,8 +75,8 @@ export class Route {
 export const Spec = { gravity: 9.8, mass: 65, shift: 850, reach: 1.35 };
 
 const Body = {
-	seats: [new Vec2(-0.11, -0.26), new Vec2(0.11, -0.26), new Vec2(-0.28, 0.26), new Vec2(0.28, 0.26)],
-	lengths: [0.46, 0.46, 0.27, 0.27],
+	seats: [new Vec2(-0.11, -0.2325), new Vec2(0.11, -0.2325), new Vec2(-0.205, 0.2325), new Vec2(0.205, 0.2325)],
+	lengths: [0.42, 0.42, 0.275, 0.275],
 	depths: [0.1, 0.1, 0.14, 0.14],
 	// a leg is about a sixth of the body's mass and an arm a twentieth: where they hang turns the body, which is what a flag uses
 	masses: [10.5, 10.5, 3.3, 3.3],
@@ -135,8 +135,11 @@ export class Sim {
 		const side = limb % 2 === 0 ? -1 : 1;
 		return this.joint(limb).add(new Vec2(side * 0.1, limb >= 2 ? -0.35 : -0.6));
 	}
+	gripPoint(hold, across) {
+		return hold.point.add(new Vec2(-hold.pull.y, hold.pull.x).norm().mul(0.06 * across));
+	}
 	spot(limb) {
-		if (this.grips[limb] >= 0) return this.holds()[this.grips[limb]].point;
+		if (this.grips[limb] >= 0) return this.gripPoint(this.holds()[this.grips[limb]], this.placement[limb]);
 		if (this.smeared[limb]) return this.posts[limb];
 		if (limb === this.reaching) return this.clamp(limb, this.target);
 		return this.hang(limb);
@@ -158,6 +161,7 @@ export class Sim {
 		this.slips = [0, 0, 0, 0];
 		this.pump = [0, 0, 0, 0];
 		this.latch = [1, 1, 1, 1];
+		this.placement = [0, 0, 0, 0];
 		this.strain = [0, 0, 0, 0];
 		this.tips = [0, 1, 2, 3].map(l => this.holds()[l].point.copy());
 		this.won = false;
@@ -167,20 +171,24 @@ export class Sim {
 		this.loads = [0, 0, 0, 0];
 		this.squeeze = 0;
 		this.tipping = 0;
+		this.overreach = 0;
 		this.fallen = false;
 	}
 
-	grab(limb, hold) {
+	grab(limb, hold, across = 0) {
 		const holds = this.holds();
 		if (hold < 0 || hold >= holds.length) return false;
-		if (this.distance(limb, holds[hold].point) > this.range(limb)) {
+		across = clamp(across, -1, 1);
+		const contact = this.gripPoint(holds[hold], across);
+		if (this.distance(limb, contact) > this.range(limb) + 0.025) {
 			this.hint = `${Names[limb]} cannot reach: shift your hips or move a foot`;
 			return false;
 		}
-		if (!this.open(limb, holds[hold].point)) {
+		if (!this.open(limb, contact)) {
 			this.hint = `${Names[limb]}: the hip will not open that far`;
 			return false;
 		}
+		this.placement[limb] = across;
 		this.grips[limb] = hold;
 		this.smeared[limb] = false;
 		this.slips[limb] = 0;
@@ -288,17 +296,26 @@ export class Sim {
 		const contacts = [];
 		let stance = new Vec2();
 		let weight = 0;
+		let hangingHand = null;
+		let supportingHands = 0;
+		let supportingFoot = false;
 		for (let limb = 0; limb < 4; limb++) {
 			const press = this.grips[limb] < 0 && this.smeared[limb];
 			if ((this.grips[limb] < 0 && !press) || !this.arrived(limb)) { this.strain[limb] = 0; continue; }
 			const hold = press ? null : holds[this.grips[limb]];
-			const point = press ? this.posts[limb] : hold.point;
+			const point = this.spot(limb);
 			// legs are far stronger than arms; pump saps the arms; a smear only carries a fraction
 			// a press can be loaded past what friction holds: it then skates off, gradually
 			let capacity = (limb < 2 ? 1100 : 700 * (1 - 0.4 * this.pump[limb])) * (0.5 + 0.5 * this.latch[limb]);
 			if (press) capacity = Math.min(capacity, friction(limb) * 1.3);
 			contacts.push({ limb, point, hold, press, capacity, applied: new Vec2() });
 			// a palm steadies the body but never decides where the hips go
+			if (capacity <= 0) continue;
+			if (limb < 2) supportingFoot = true;
+			else if (!press) {
+				hangingHand = contacts[contacts.length - 1];
+				supportingHands++;
+			}
 			const vote = limb < 2 ? 2 : press ? 0 : 1;
 			if (!vote) continue;
 			stance = stance.add(point.sub(this.turn(this.rest(limb))).mul(vote));
@@ -331,11 +348,16 @@ export class Sim {
 
 		if (weight > 0) {
 			// the hips ease toward the stance at a human pace instead of snapping, which keeps the load on the fingers smooth
-			const wanted = stance.mul(1 / weight).add(reach);
+			let wanted = stance.mul(1 / weight).add(reach);
+			if (supportingHands === 1 && !supportingFoot) {
+				// With the feet cut, settle under the loaded shoulder at nearly full arm length.
+				const { limb, point } = hangingHand;
+				wanted = point.sub(this.turn(Body.seats[limb])).add(face.down(this.position.y).norm().mul(1.8 * Body.lengths[limb])).add(reach);
+			}
 			// Match the native relaxed opening stance after the contacts settle.
 			if (face.at(this.position.y).up.z > 0.85 && face.steep(this.position.y) <= 0.05 && mover < 0 && this.grips.every((hold, limb) => hold === limb)) wanted.y -= 0.10;
 			this.goal = this.goal.add(wanted.sub(this.goal).mul(Math.min(1, delta * 6)).clampLen(1.2 * delta));
-			let needed = this.goal.sub(this.position).mul(2400).sub(this.velocity.mul(520)).sub(weight2D);
+			let needed = this.goal.sub(this.position).mul(2400).sub(this.velocity.mul(760)).sub(weight2D);
 			for (let pass = 0; pass < 4 && needed.len() > 1; pass++) {
 				let open = 0;
 				for (const c of contacts) open += Math.max(0, c.capacity - c.applied.len());
@@ -372,7 +394,8 @@ export class Sim {
 			// a fresh catch has not settled yet: the fingers are still finding the hold
 			const limit = c.press ? friction(limb) * (0.45 + 0.55 * this.latch[limb])
 				: grip * (0.5 + 0.5 * matchup) * (limb < 2 ? 1.45 : 1) * (1 - 0.5 * this.pump[limb]) * peel * (0.45 + 0.55 * this.latch[limb]);
-			const effort = load.len() / Math.max(limit, 1);
+			const purchase = c.press ? 1 : 1 - (limb < 2 ? 0.22 : 0.30) * this.placement[limb] ** 2;
+			const effort = load.len() / Math.max(limit * purchase, 1);
 			this.strain[limb] = effort;
 			this.loads[limb] = load.len();
 			if (limb >= 2 && !c.press) {
@@ -403,6 +426,11 @@ export class Sim {
 		if (this.position.y < 0.62) this.fall('fell: try moving a foot before reaching');
 		else if (this.tipping > 0.35) this.fall('tipped off: keep a hand on before moving the other');
 		else if (Math.abs(this.angle) > 1.5) this.fall('barn-doored off: flag a leg or get a foot on that side');
+		const limb = this.reaching;
+		const straining = limb >= 0 && limb < 4 && this.grips[limb] < 0 && !this.smeared[limb]
+			&& this.target.dist(this.clamp(limb, this.target)) > 0.18;
+		this.overreach = straining ? this.overreach + delta : Math.max(0, this.overreach - 2 * delta);
+		if (!this.fallen && this.overreach > 1.25) this.fall('lost grip reaching: move a supporting limb first');
 		const top = holds.length - 1;
 		// a send is both hands matched on the finish hold, held under control
 		this.topped = this.grips[2] === top && this.grips[3] === top && this.arrived(2) && this.arrived(3) ? this.topped + delta : 0;

@@ -21,14 +21,26 @@ bool FStablePlayerTest::RunTest(const FString& Parameters)
 {
  USkeletalMesh* Mesh=ULocomotionAnim::LoadPlayerMesh();
  if(!TestNotNull(TEXT("stable player exists"),Mesh))return false;
- const bool Blaize=Mesh->GetPathName().Contains(TEXT("BlaizePlayer")) || Mesh->GetPathName().Contains(TEXT("Blaize2Player"));
- if(!Mesh->GetPathName().Contains(TEXT("CoreyPlayer")) && !Mesh->GetPathName().Contains(TEXT("PersonalPlayer")) && !Blaize)
+ const FString Path = Mesh->GetPathName();
+ const bool Blaize = Path.StartsWith(TEXT("/Game/Local/BlaizePlayer/"))
+  || Path.StartsWith(TEXT("/Game/Local/Blaize2Player/"))
+  || Path.StartsWith(TEXT("/Game/Local/Blaize2ShoulderPlayer/"))
+  || Path.StartsWith(TEXT("/Game/Local/Blaize2ShoulderPlayerV2/"));
+ const bool Personal = Path.StartsWith(TEXT("/Game/Local/PersonalPlayer/"));
+ const bool Corey = Path.StartsWith(TEXT("/Game/Local/CoreyPlayer/"));
+ if(Blaize)
+  TestTrue(TEXT("explicit flag selected a Blaize preview"),
+   FParse::Param(FCommandLine::Get(),TEXT("latestplayer"))
+   || FParse::Param(FCommandLine::Get(),TEXT("blaizeplayer"))
+   || FParse::Param(FCommandLine::Get(),TEXT("blaize2player")));
+ if(!Corey && !Personal && !Blaize)
  {
-  const bool Experimental=FParse::Param(FCommandLine::Get(),TEXT("garmentcandidate")) || FParse::Param(FCommandLine::Get(),TEXT("modularplayer"));
-  TestTrue(TEXT("only explicit experimental flags may bypass the stable default"),Experimental);
-  return Experimental;
+  const bool Experimental=FParse::Param(FCommandLine::Get(),TEXT("garmentcandidate"))
+   || FParse::Param(FCommandLine::Get(),TEXT("modularplayer"))
+   || FParse::Param(FCommandLine::Get(),TEXT("clothplayer"));
+  return TestTrue(TEXT("only explicit experimental flags may bypass the stable default"),Experimental);
  }
- if(Mesh->GetPathName().Contains(TEXT("PersonalPlayer")) || Blaize)
+ if(Personal || Blaize)
   for(const TCHAR* Name:{TEXT("LeftSoleContact"),TEXT("RightSoleContact"),TEXT("PlayerEyes")})
    TestTrue(TEXT("personal player fitted landmark exists"),Mesh->GetRefSkeleton().FindBoneIndex(Name)>=0);
  TestFalse(TEXT("stable player has no Chaos cloth binding"),Mesh->HasActiveClothingAssets());

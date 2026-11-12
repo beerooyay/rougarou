@@ -24,13 +24,21 @@ struct FHumanMix { float Waist=.2583f, Spine=.6381f, Neck=.525f, Scapula=.28f; }
 struct FHumanGoals
 {
  FVector Roots[4], Ends[4], Poles[4], Along[4], Out[4];
+ FVector PanelUp[4]={FVector::UpVector,FVector::UpVector,FVector::UpVector,FVector::UpVector};
  FString Grips[4];
  TOptional<FVector> ShoeSurfaces[2], HandSurfaces[2];
  bool Held[4]={true,true,true,true};
+ // the share of body weight each contact carries, 0 to 1
+ float Weight[4]={};
+ // Relaxed upright support preference; zero for roofs, reaches and falls.
+ float RelaxedSupport=0;
+ // how much a limb that is off the wall is trying to get somewhere: 1 on its way to a hold, less while it follows the
+ // pointer, 0 hanging free. the body moves to help it in proportion
+ float Want[4]={};
  TArray<FClimbPanel> Panels;
  FVector Look=FVector::ZeroVector;
  // the route's holds as resin domes; Owners marks the limbs on each (bit per limb) so a limb may touch its own hold
- struct FDome{FVector C,N;float R=0,H=0;uint8 Owners=0;};
+ struct FDome{FVector C,N;float R=0,H=0;uint8 Owners=0;TSharedPtr<const FHoldSurface> Surface;};
  TArray<FDome> Domes;
  static FHumanGoals FromSim(const FClimbSim& Sim,float Gap=30,float Inside=0,float HipDepth=-1,float ChestDepth=-1);
 };
@@ -40,7 +48,7 @@ struct FHumanPose
  FTransform World=FTransform::Identity;
  FVector Eye=FVector::ZeroVector;
  FVector Ends[4], Bends[4];
- float Miss[4]={}, Comfort=0, MinClearance=MAX_flt, MaxLimitViolation=0;
+ float Miss[4]={}, SupportEffort=0, Comfort=0, MinClearance=MAX_flt, MaxLimitViolation=0;
  FVector Shift=FVector::ZeroVector;
  bool Finite=true;
  float PelvisPitch=0, PelvisYaw=0;
@@ -68,6 +76,13 @@ public:
  static FQuat Clamp(FQuat Relative,const FHumanFrame& Frame,const FHumanLimit& Limit);
  static float Violation(FQuat Relative,const FHumanFrame& Frame,const FHumanLimit& Limit);
  static FString ProfilePath();
+ static FString DefaultProfilePath();
+ static bool ValidProfile(const FString& Json);
+ const TMap<int32,FHumanLimit>& JointLimits() const{return Limits;}
+ const FHumanFrame* JointFrame(int32 I) const{return Frames.Find(I);}
+ const TArray<FTransform>& NeutralPose() const{return Neutral;}
+ bool SetJointLimit(int32 I,const FHumanLimit& Value);
+ FQuat PreviewJoint(int32 I,FVector Degrees,bool Restrict) const;
  const TMap<FName,FName>& BoneMap() const{return Aliases;}
 private:
  TArray<FName> Names;
@@ -87,11 +102,13 @@ private:
  FHumanGoals SmoothGoals;
  FVector Push=FVector::ZeroVector;
  float Swivel[4]={};
+ // set while the direct solver runs its last pass: the legs then steer their knee angle a little, instead of scanning
+ bool SteerKnees=false;
  bool HasHistory=false;
  float Pitch=0, Yaw=0;
  int32 Bone(const TCHAR* Name) const;
  void Compose(const TArray<FTransform>& Local,TArray<FTransform>& Space) const;
  FHumanPose Pass(const FHumanGoals& Goals,FVector Offset,const float* Swivels,bool Search,float* Chosen,float PelvisPitch=0,float PelvisYaw=0,bool FitSoles=false);
- void PoseFingers(const FHumanGoals& Goals,FHumanPose& Pose) const;
+ void PoseFingers(const FHumanGoals& Goals,FHumanPose& Pose,float Delta=0,uint8 NewlyHeld=0) const;
  FQuat LimitLocal(int32 Index,FQuat Local) const;
 };

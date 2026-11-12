@@ -33,6 +33,8 @@ public:
 	static bool WalkerBlocked(FVector At);
 	static FVector MoveWalker(FVector From, FVector Step);
 	static FVector ClearWalker(FVector At, FVector Direction);
+	void PressPad(FVector Point,float Depth,bool Impact);
+	virtual void Tick(float Delta) override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -49,6 +51,14 @@ private:
 
 	// wall panels: 0 plywood, 1 black
 	FMeshSink Boards[2];
+
+	struct FPadPressure { float Load=0, Impact=0, Depth=0; };
+	TMap<int32,FPadPressure> LoadedPads;
+	TArray<FTransform> PadBases, PadCovers;
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> PadBaseMesh;
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> PadCoverMesh;
 	// holds by palette color, plus the dark of pocket holes
 	TArray<FMeshSink> Paint;
 	FMeshSink Shadow;

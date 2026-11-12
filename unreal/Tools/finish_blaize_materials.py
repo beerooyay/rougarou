@@ -6,7 +6,7 @@ import unreal
 
 ROOT = os.environ['ROUGAROU_PLAYER_DEST'].rstrip('/')
 SOURCE = Path(os.environ['ROUGAROU_PLAYER_SOURCE'])
-assert ROOT in ('/Game/Local/BlaizePlayer', '/Game/Local/Blaize2Player', '/Game/Local/Blaize2ShoulderPlayer')
+assert ROOT in ('/Game/Local/BlaizePlayer', '/Game/Local/Blaize2Player', '/Game/Local/Blaize2ShoulderPlayer', '/Game/Local/BlaizeClothPlayer', '/Game/Local/Blaize2ShoulderPlayerV2')
 manifest = json.loads((SOURCE/'materials.json').read_text())
 edit = unreal.MaterialEditingLibrary
 textures = {}
@@ -48,6 +48,8 @@ for slot in slots:
         if not edit.connect_material_property(node, channel, prop): raise RuntimeError('PBR connection failed: '+role)
     material.set_editor_property('two_sided', spec['two_sided'])
     material.set_editor_property('used_with_skeletal_mesh', True)
+    # cloth sections fall back to the engine's default grey material without this usage flag
+    material.set_editor_property('used_with_clothing', True)
     edit.recompile_material(material)
     unreal.EditorAssetLibrary.save_loaded_asset(material, False)
     slot.set_editor_property('material_interface', material)

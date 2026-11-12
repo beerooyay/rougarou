@@ -7,6 +7,7 @@
 #include "RougarouGame.generated.h"
 
 class AClimberActor;
+class AGymActor;
 class ACameraActor;
 class SRougarouUI;
 class IInputProcessor;
@@ -35,6 +36,10 @@ public:
 	TObjectPtr<AClimberActor> Climber;
 
 	UPROPERTY()
+	TObjectPtr<AGymActor> GymActor;
+	bool PadLanding=false;
+
+	UPROPERTY()
 	TObjectPtr<ACameraActor> View;
 
 	virtual void BeginPlay() override;
@@ -48,8 +53,21 @@ public:
 	bool ReferencePreview=false;
 	void ToggleReferencePreview();
 	bool TrackpadLook=true;
-	bool LookFromTrackpad(FVector2D Delta);
+	bool InvertLook=false;
+	bool LookFromTrackpad(FVector2D Delta,bool Inverted=true);
+	bool LookFromPointer(FVector2D Delta);
 	void ToggleMenu();
+	void TogglePlayerForm();
+	void OrbitPlayerForm(float Yaw,float Pitch,float Zoom);
+	FTransform FormCamera, FormCharacterTransform;
+	UPROPERTY() TObjectPtr<AActor> FormStage;
+	void ApplyPlayerForm(const FString& Destination=FString());
+	bool StudioProofApplied=false,StudioProofWallShot=false;
+	FVector2D StudioProofPosition;
+	FString StudioProofPath;
+	void ShowPlayerFormFiles();
+	float FormProofTime=0;
+	bool FormProofOpened=false, FormProofShot=false;
 	void TogglePerspective();
 	void VisitProblem(int32 Index,bool Climb);
 	void Retry();
@@ -71,14 +89,20 @@ private:
 	TSharedPtr<SRougarouUI> Interface;
 	TSharedPtr<IInputProcessor> TrackpadInput;
 	float ClimbOrbitYaw=0, ClimbOrbitPitch=0;
+	// swipe still to be fed to the camera: right and up, radians
+	FVector2D PendingLook=FVector2D::ZeroVector;
+	void ApplyLook(FVector2D Turn);
 	UPROPERTY() TArray<TObjectPtr<AActor>> ReferenceScene;
 	void ReferenceCamera(float Delta);
 	bool ReferenceStartupHandled=false;
 	float ReferenceElapsed=0;
 	bool ReferenceShotTaken=false;
 	void InputMode();
+	void Lift(int32 Index);
+	FVector2D SmoothLean=FVector2D::ZeroVector;
+	float HoverClock=0;
 	void FirstCamera(float Delta);
-	void FirstKeys();
+
 	void VerifyFlow(float Delta);
 	int32 FlowStage=0;
 	float FlowTime=0;
@@ -93,6 +117,7 @@ private:
 	int32 Limb = -1;
 	// where the lifted limb was, for putting it back
 	int32 Previous = -1;
+	float PreviousPlacement = 0;
 	bool Pressed = false;
 	FVector2D Post = FVector2D::ZeroVector;
 	int32 Falls = 0;
@@ -112,9 +137,9 @@ private:
 	FVector2D HoverFrom = FVector2D::ZeroVector;
 	FVector2D Guide = FVector2D::ZeroVector;
 
-	bool Cursor(FVector2D& Out) const;
+	bool Cursor(FVector2D& Out, int32& Hold) const;
 	FVector2D Tip(int32 Index) const;
-	void Press(FVector2D Point);
+	void Press(FVector2D Point, int32 Hold = INDEX_NONE);
 	void Cancel();
 	void Status() const;
 

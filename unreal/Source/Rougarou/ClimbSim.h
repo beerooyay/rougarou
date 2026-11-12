@@ -6,6 +6,26 @@
 // a problem's wall is a stack of flat angled panels (a vertical base into a kicker, a steep wall onto a roof);
 // gravity and peel come from whichever panel a body part is on. limbs are 0 right foot, 1 left foot, 2 right hand, 3 left hand.
 
+// a hold's resin as a height map over its footprint: how far the surface stands off the wall at each point
+struct FHoldSurface
+{
+	FTransform Frame;
+	FVector2D Min = FVector2D::ZeroVector, Max = FVector2D::ZeroVector;
+	int32 Cells = 0;
+	TArray<float> Heights;
+	// how far a point is above the resin (negative inside), in centimeters
+	float Clear(const FVector& Point) const
+	{
+		const FVector Local = Frame.InverseTransformPosition(Point);
+		if (Cells < 2 || Local.X < Min.X || Local.Y < Min.Y || Local.X > Max.X || Local.Y > Max.Y) return Local.Z;
+		const float U = (Local.X - Min.X) / (Max.X - Min.X) * (Cells - 1), V = (Local.Y - Min.Y) / (Max.Y - Min.Y) * (Cells - 1);
+		const int32 I = FMath::Min(int32(U), Cells - 2), J = FMath::Min(int32(V), Cells - 2);
+		const float A = U - I, B = V - J;
+		auto H = [&](int32 X, int32 Y) { return Heights[Y * Cells + X]; };
+		return Local.Z - FMath::Lerp(FMath::Lerp(H(I, J), H(I + 1, J), A), FMath::Lerp(H(I, J + 1), H(I + 1, J + 1), A), B);
+	}
+};
+
 struct FClimbHold
 {
 	FVector2D Point;
@@ -17,6 +37,7 @@ struct FClimbHold
 	// the resin as a half-ellipsoid on the wall, in gym space: for keeping knees and the body out of it
 	FVector Center = FVector::ZeroVector, Normal = FVector::ZeroVector;
 	float Radius = 0, Height = 0;
+	TSharedPtr<const FHoldSurface> Surface;
 };
 
 // one flat panel of a problem's wall, placed in the gym in centimeters
@@ -64,11 +85,13 @@ struct FClimbSpec
 	static bool Load(const FString& Path, FClimbSpec& Out);
 };
 
-// body proportions; measured from the 1.85m mixamo rig, to be replaced by the metahuman skeleton
+// body proportions, measured from the player character (5 ft 7): hips 22 cm apart, shoulders 41, hip to shoulder 46.5,
+// thigh plus shin 81.5 to the ankle and about 86 to the toe on a hold, shoulder to the knuckles on a hold about 57.
+// the sim and the skeleton have to agree, or the sim sends a foot to a hold the leg cannot reach
 struct FClimbBody
 {
-	FVector2D Seats[4] = { { -0.11f, -0.26f }, { 0.11f, -0.26f }, { -0.28f, 0.26f }, { 0.28f, 0.26f } };
-	float Lengths[4] = { 0.46f, 0.46f, 0.27f, 0.27f };
+	FVector2D Seats[4] = { { -0.11f, -0.2325f }, { 0.11f, -0.2325f }, { -0.205f, 0.2325f }, { 0.205f, 0.2325f } };
+	float Lengths[4] = { 0.42f, 0.42f, 0.275f, 0.275f };
 	// how far each limb root sits off the wall, which costs reach
 	float Depths[4] = { 0.1f, 0.1f, 0.14f, 0.14f };
 	// a leg is about a sixth of the body's mass and an arm a twentieth: where they hang turns the body, which is what a flag uses
@@ -107,12 +130,13 @@ public:
 	// the hold a lifted limb is lined up on, so the hand can shape for it before it lands
 	int32 Aimed = -1;
 	// the skeleton has the last word: a hold the joints cannot reach, or that would put a knee in the wall, is refused with a reason
-	TFunction<FString(const FClimbSim&, int32, int32)> Gate;
+	TFunction<FString(const FClimbSim&, int32, int32, float)> Gate;
 	// where each hand and foot really is: it travels where it is sent at a human speed and only bears weight once it gets there
 	FVector2D Tips[4];
 	// how settled each grip is, 0 just caught to 1 locked in, negative while the limb is still on its way.
 	// catching a hold at the deadpoint, with the body still, starts it high; catching it on the move starts it low
 	float Latch[4] = { 1, 1, 1, 1 };
+	float Placement[4] = {}; // normalized position across the usable grip
 	// each contact's load over what it can hold; past 1 the fingers or rubber are sliding
 	float Strain[4] = {};
 	// the stance the hips are being moved toward, eased like muscles rather than snapped
@@ -123,6 +147,7 @@ public:
 	float Squeeze = 0;
 	// how long the body has had nothing but feet on a wall too steep to stand on
 	float Tipping = 0;
+	float Overreach = 0;
 	// off the wall: everything let go and the sim stops until a restart
 	bool Fallen = false;
 
@@ -144,10 +169,13 @@ public:
 	// whether the hip can put a foot there: no higher than a high step, only a little across the body. hands are free
 	bool Open(int32 Limb, FVector2D Point) const;
 	// why a limb could not take a hold right now (empty when it can); Grab uses it, and so does the aiming preview
-	FString Check(int32 Limb, int32 Hold) const;
+	FString Check(int32 Limb, int32 Hold, float Across = 0) const;
 	const TArray<FClimbHold>& Holds() const { return Spec.Routes[Route].Holds; }
 
-	bool Grab(int32 Limb, int32 Hold);
+	bool Grab(int32 Limb, int32 Hold, float Across = 0);
+	static FVector2D GripPoint(const FClimbHold& Hold, float Across);
+	static float GripWidth(const FClimbHold& Hold);
+	static FVector2D GripSide(const FClimbHold& Hold);
 	bool Smear(int32 Limb, FVector2D Point);
 	void Drop(int32 Limb);
 	void Fall(const TCHAR* Why);
@@ -162,9 +190,9 @@ public:
 		float Slips[4];
 		float Pump[4];
 		FVector2D Tips[4];
-		float Latch[4];
+		float Latch[4], Placement[4];
 		FVector2D Goal;
-		float Topped, Tipping;
+		float Topped, Tipping, Overreach;
 		bool Won, Fallen;
 	};
 	FState Save() const;

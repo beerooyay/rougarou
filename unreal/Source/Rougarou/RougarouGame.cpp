@@ -1,16 +1,23 @@
 #include "RougarouGame.h"
+#include "Kismet/GameplayStatics.h"
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "ClimberActor.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PointLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "HAL/PlatformProcess.h"
+#include "HAL/FileManager.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/PointLight.h"
 #include "Engine/SkyLight.h"
 #include "Components/SkyLightComponent.h"
 #include "UnrealClient.h"
 #include "Engine/Engine.h"
+#include "Engine/SkeletalMesh.h"
 #include "EngineUtils.h"
 #include "GymActor.h"
 #include "ClimbView.h"
@@ -20,6 +27,17 @@
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/Paths.h"
 #include "Framework/Application/IInputProcessor.h"
+#include <atomic>
+
+// macOS keeps sending scroll events after the fingers lift (momentum). For a camera that reads as drift,
+// so a local event monitor notes which kind is arriving and the look handler drops the coasting ones.
+static std::atomic<bool> ScrollCoasting{false};
+#if PLATFORM_MAC
+#define FVector FVectorWorkaround
+#import <AppKit/AppKit.h>
+#undef FVector
+static id ScrollMonitor=nil;
+#endif
 
 class FRougarouTrackpadInput : public IInputProcessor
 {
@@ -29,24 +47,51 @@ public:
  void Tick(float,FSlateApplication&,TSharedRef<ICursor>) override {}
  bool HandleMouseWheelOrGestureEvent(FSlateApplication& App,const FPointerEvent&,const FPointerEvent* Gesture) override
  {
-  return App.IsActive() && Owner.IsValid() && Gesture && Gesture->GetGestureType()==EGestureEvent::Scroll && Owner->LookFromTrackpad(Gesture->GetGestureDelta());
+  return App.IsActive() && Owner.IsValid() && Gesture && Gesture->GetGestureType()==EGestureEvent::Scroll && Owner->LookFromTrackpad(Gesture->GetGestureDelta(),Gesture->IsDirectionInvertedFromDevice());
  }
  bool HandleMouseMoveEvent(FSlateApplication& App,const FPointerEvent& Event) override
  {
-  return App.IsActive() && Owner.IsValid() && Event.IsAltDown() && Owner->LookFromTrackpad(Event.GetCursorDelta());
+  if(!App.IsActive() || !Owner.IsValid()) return false;
+  if(Owner->LookFromPointer(Event.GetCursorDelta())) return true;
+  return Event.IsAltDown() && Owner->LookFromTrackpad(Event.GetCursorDelta(),true);
  }
 };
 
-bool ARougarouController::LookFromTrackpad(FVector2D D)
+bool ARougarouController::LookFromPointer(FVector2D Delta)
 {
- if(MenuOpen || !TrackpadLook || !Climber)return false;
- const float X=FMath::Clamp(float(D.X),-100.f,100.f)*.003f*LookSensitivity;
- const float Y=FMath::Clamp(float(D.Y),-100.f,100.f)*.003f*LookSensitivity;
- if(ReferencePreview){ClimbOrbitYaw+=X;ClimbOrbitPitch=FMath::Clamp(ClimbOrbitPitch+Y,-.6f,.8f);}
- else if(FirstPerson){OpeningHold=-1;if(Mode==0){WalkYaw+=X;RoamPitch=FMath::Clamp(RoamPitch-Y,-1.4f,1.4f);}else{FirstYaw=FMath::Clamp(FirstYaw+X,-2.8f,2.8f);FirstPitch=FMath::Clamp(FirstPitch-Y,-1.4f,1.4f);}}
- else if(Mode==0){WalkYaw-=X;WalkPitch=FMath::Clamp(WalkPitch+Y,-.35f,.9f);}
- else{Wide=false;Elapsed=3;ClimbOrbitYaw=FMath::Clamp(ClimbOrbitYaw+X,-1.2f,1.2f);ClimbOrbitPitch=FMath::Clamp(ClimbOrbitPitch+Y,-.6f,.8f);}
+ if(MenuOpen || ReferencePreview || Mode!=0 || FreeCursor || !Climber || Delta.IsNearlyZero()) return false;
+ const FVector2D Motion=Delta.ClampAxes(-150,150);
+ const float Sensitivity=LookSensitivity*(InvertLook?-1.f:1.f);
+ PendingLook+=FVector2D(Motion.X*.00085f,-Motion.Y*.0007f)*Sensitivity;
  return true;
+}
+
+// Fingers moving right turn the view right and fingers moving up tilt it up, in every mode and both views.
+// The swipe is queued and fed to the camera over a few frames, so coarse gesture events still turn it evenly.
+bool ARougarouController::LookFromTrackpad(FVector2D D,bool Inverted)
+{
+ if(MenuOpen || (!ReferencePreview && Mode==0) || !TrackpadLook || !Climber)return false;
+ if(ScrollCoasting)return true;
+ // with natural scrolling the delta already follows the fingers; otherwise it is the opposite
+ const FVector2D Fingers=(Inverted?D:-D).ClampAxes(-100,100)*(InvertLook?-1.:1.);
+ PendingLook+=FVector2D(Fingers.X,-Fingers.Y)*.001f*LookSensitivity;
+ return true;
+}
+
+// Turn the view by Right and Up radians, whichever camera is live.
+void ARougarouController::ApplyLook(FVector2D Turn)
+{
+ const float X=Turn.X,Y=Turn.Y;
+ if(ReferencePreview){ClimbOrbitYaw+=X;ClimbOrbitPitch=FMath::Clamp(ClimbOrbitPitch-Y,-.6f,.8f);}
+ else if(FirstPerson){OpeningHold=-1;if(Mode==0){WalkYaw+=X;RoamPitch=FMath::Clamp(RoamPitch+Y,-1.4f,1.4f);}else{FirstYaw=FMath::Clamp(FirstYaw+X,-2.8f,2.8f);FirstPitch=FMath::Clamp(FirstPitch+Y,-1.4f,1.4f);}}
+ else if(Mode==0){WalkYaw+=X;WalkPitch=FMath::Clamp(WalkPitch-Y,-.35f,.9f);}
+ else{Wide=false;Elapsed=FMath::Max(Elapsed,3.f);ClimbOrbitYaw=FMath::Clamp(ClimbOrbitYaw+X,-1.2f,1.2f);ClimbOrbitPitch=FMath::Clamp(ClimbOrbitPitch-Y,-.6f,.8f);}
+}
+
+// The third-person camera keeps up closely when it is near its spot, so turning does not swim, and glides when it has far to travel.
+static float FollowSpeed(const FVector& From,const FVector& Goal)
+{
+ return FMath::Lerp(14.f,1.6f,FMath::SmoothStep(150.f,600.f,float(FVector::Distance(From,Goal))));
 }
 
 ARougarouGameMode::ARougarouGameMode()
@@ -121,6 +166,7 @@ void ARougarouController::BeginPlay()
 	Look.bOverride_MotionBlurAmount=true;Look.MotionBlurAmount=0;
 	Look.bOverride_MotionBlurMax=true;Look.MotionBlurMax=0;
 	GConfig->GetBool(TEXT("Camera"),TEXT("TrackpadLook"),TrackpadLook,SettingsFile());
+	GConfig->GetBool(TEXT("Camera"),TEXT("InvertLook"),InvertLook,SettingsFile());
 	GConfig->GetFloat(TEXT("Camera"),TEXT("Look"),LookSensitivity,SettingsFile());
 	GConfig->GetFloat(TEXT("Camera"),TEXT("Distance"),CameraDistance,SettingsFile());
 	GConfig->GetBool(TEXT("Display"),TEXT("Gauges"),ShowGauges,SettingsFile());
@@ -145,13 +191,17 @@ void ARougarouController::BeginPlay()
 		GEngine->GameViewport->AddViewportWidgetContent(Interface.ToSharedRef(),20);
 		TrackpadInput=MakeShared<FRougarouTrackpadInput>(this);
 		FSlateApplication::Get().RegisterInputPreProcessor(TrackpadInput);
+#if PLATFORM_MAC
+		if(!ScrollMonitor)ScrollMonitor=[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent*(NSEvent* Event){ScrollCoasting=[Event momentumPhase]!=NSEventPhaseNone;return Event;}];
+#endif
 	}
 	GEngine->ClearOnScreenDebugMessages();
 	InputMode();
 }
 
-bool ARougarouController::Cursor(FVector2D& Out) const
+bool ARougarouController::Cursor(FVector2D& Out, int32& Hold) const
 {
+	Hold = INDEX_NONE;
 	FVector Origin, Direction;
 	if (!Climber || !DeprojectMousePositionToWorld(Origin, Direction)) return false;
 	// meet the problem's panels: the nearest one the ray hits within its stretch of the wall wins
@@ -171,7 +221,43 @@ bool ARougarouController::Cursor(FVector2D& Out) const
 		Nearest = Distance;
 		Out = FVector2D(FVector::DotProduct(Hit, Panel.Right) / 100, Panel.Start + Up);
 	}
-	return Nearest < TNumericLimits<float>::Max();
+	if (Nearest == TNumericLimits<float>::Max()) return false;
+	if (Limb < 0 || FirstPerson) return true;
+
+	FVector ResinHit=FVector::ZeroVector;
+	// The wall intersection guides the limb. The resin in front of it decides what can be grabbed.
+	for (int32 Index = 0; Index < Face.Holds.Num(); ++Index)
+	{
+		const FClimbHold& Resin = Face.Holds[Index];
+		if (!Resin.Surface.IsValid()) continue;
+		const double Facing = FVector::DotProduct(Direction, Resin.Normal);
+		if (Facing >= -0.0001) continue;
+		const FVector FromHold = Origin - Resin.Center;
+		const double CenterAlong = -FVector::DotProduct(FromHold, Direction);
+		if ((FromHold + Direction * CenterAlong).SizeSquared() > FMath::Square(Resin.Radius + Resin.Height)) continue;
+
+		const double OriginDepth = FVector::DotProduct(FromHold, Resin.Normal);
+		const double Start = FMath::Max(0.0, (Resin.Height - OriginDepth) / Facing);
+		const double End = FMath::Min(double(Nearest), (0.35 - OriginDepth) / Facing);
+		if (Start > End) continue;
+		for (int32 Step = 0; Step <= 16; ++Step)
+		{
+			const double At = FMath::Lerp(Start, End, Step / 16.0);
+			if (Resin.Surface->Clear(Origin + Direction * At) > 0) continue;
+			Hold = Index;
+			ResinHit=Origin+Direction*At;
+			Nearest = At;
+			break;
+		}
+	}
+	if(Hold>=0)
+	{
+		const auto& Resin=Face.Holds[Hold];
+		const auto& Panel=Face.At(Resin.Point.Y);
+		const FVector Offset=ResinHit-Resin.Center;
+		Out=Resin.Point+FVector2D(Offset|Panel.Right,Offset|Panel.Up)/100;
+	}
+	return true;
 }
 
 FVector2D ARougarouController::Tip(int32 Index) const
@@ -179,7 +265,21 @@ FVector2D ARougarouController::Tip(int32 Index) const
 	return Climber->Sim.Tips[Index];
 }
 
-void ARougarouController::Press(FVector2D Point)
+void ARougarouController::Lift(int32 Index)
+{
+	FClimbSim& Sim = Climber->Sim;
+	if (Sim.Fallen || Sim.Won || Index < 0 || Index > 3) return;
+	Limb = Index;
+	Previous = Sim.Grips[Limb];
+	PreviousPlacement = Sim.Placement[Limb];
+	Pressed = Sim.Smeared[Limb];
+	Post = Sim.Posts[Limb];
+	Aim = Tip(Limb);
+	Guide = FVector2D::ZeroVector;
+	Sim.Drop(Limb);
+}
+
+void ARougarouController::Press(FVector2D Point, int32 Hold)
 {
 	FClimbSim& Sim = Climber->Sim;
 	if (Limb < 0)
@@ -191,40 +291,34 @@ void ARougarouController::Press(FVector2D Point)
 			const float Gap = FVector2D::Distance(Tip(Index), Point);
 			if (Gap < Closest) { Closest = Gap; Limb = Index; }
 		}
-		if (Limb < 0) return;
 		// lifting a limb takes it off the wall: the other three carry the weight from this moment
-		Previous = Sim.Grips[Limb];
-		Pressed = Sim.Smeared[Limb];
-		Post = Sim.Posts[Limb];
-		Aim = Tip(Limb);
-		Sim.Drop(Limb);
+		const int32 Picked = Limb;
+		Limb = -1;
+		if (Picked >= 0) Lift(Picked);
 		return;
 	}
-	// commit whatever is under the hand or foot; a bad hold or a bare-wall press is allowed and physics decides if it sticks
-	auto Nearest = [&](FVector2D Spot)
+	// A missed grab leaves the limb selected. Only a click on blank wall can place a smear.
+	if (Hold >= 0)
 	{
-		int32 Found = -1;
-		float Closest = 0.15f;
-		for (int32 Hold = 0; Hold < Sim.Holds().Num(); Hold++)
+		const auto& Resin=Sim.Holds()[Hold];
+		const float Across=FVector2D::DotProduct(Point-Resin.Point,FClimbSim::GripSide(Resin))*100/FClimbSim::GripWidth(Resin);
+		if (Sim.Grab(Limb, Hold, Across)) Limb = -1;
+		else
 		{
-			const float Gap = FVector2D::Distance(Sim.Holds()[Hold].Point, Spot);
-			if (Gap < Closest) { Closest = Gap; Found = Hold; }
+			HoverWhy = Sim.Hint;
+			HoverReady = false;
 		}
-		return Found;
-	};
-	// the hold under the cursor wins if the body can still get there by reaching; otherwise whatever the fingertips touch.
-	// a hold just past the fingertips is caught by its near edge: a weak press there instead of nothing
-	const int32 Wanted = Hovered >= 0 ? Hovered : Nearest(Point), Touched = Nearest(Aim);
-	if (Wanted >= 0 && Sim.Grab(Limb, Wanted)) { Limb = -1; return; }
-	if (Touched < 0 || !Sim.Grab(Limb, Touched)) Sim.Smear(Limb, Aim);
-	Limb = -1;
+		return;
+	}
+	const FClimbPanel& Last = Sim.Spec.Routes[Sim.Route].Panels.Last();
+	if (Point.Y >= 0 && Point.Y <= Last.Start + Last.Length && Sim.Smear(Limb, Point)) Limb = -1;
 }
 
 void ARougarouController::Cancel()
 {
 	// put the limb back where it was if the body can still get it there, otherwise it hangs
 	FClimbSim& Sim = Climber->Sim;
-	if (Previous >= 0) Sim.Grab(Limb, Previous);
+	if (Previous >= 0) Sim.Grab(Limb, Previous, PreviousPlacement);
 	else if (Pressed) Sim.Smear(Limb, Post);
 	Limb = -1;
 }
@@ -233,18 +327,61 @@ void ARougarouController::PlayerTick(float Delta)
 {
 	Super::PlayerTick(Delta);
 	if (!Climber) return;
+	if(FParse::Param(FCommandLine::Get(),TEXT("formpreview")))
+	{
+		FormProofTime+=Delta;
+		if(FormProofTime>2 && !FormProofOpened){FormProofOpened=true;StudioProofPosition=Climber->Sim.Position;TogglePlayerForm();}
+		if(FParse::Param(FCommandLine::Get(),TEXT("studioflow")))
+		{
+			auto Check=[&](bool OK,const TCHAR* Label){if(OK){UE_LOG(LogTemp,Display,TEXT("STUDIO PASS: %s"),Label);}else {UE_LOG(LogTemp,Error,TEXT("STUDIO FAIL: %s"),Label);ConsoleCommand(TEXT("quit"));}};
+			if(FormProofTime>4 && !FormProofShot)
+			{
+				Check(Climber->Form.Open&&Climber->Walker->GetComponentLocation().Z>9000,TEXT("character moved into separate studio"));
+				Check(Climber->Sim.Position.Equals(StudioProofPosition,.0001),TEXT("wall simulation stays frozen"));
+				Climber->Form.Set(*Climber->Walker,0,35);
+				FScreenshotRequest::RequestScreenshot(Shots/TEXT("rig-studio.png"),true,false);FormProofShot=true;
+			}
+			if(FormProofTime>5 && !StudioProofApplied)
+			{
+				StudioProofApplied=true;const int32 Joint=Climber->Form.Selected;
+				Climber->Form.SetBound(*Climber->Walker,0,true,120);
+				StudioProofPath=FPaths::ProjectSavedDir()/TEXT("Automation")/(TEXT("studio_")+FGuid::NewGuid().ToString()+TEXT(".json"));
+				ApplyPlayerForm(StudioProofPath);
+				Check(!Climber->Form.Open&&!MenuOpen&&Climber->Walker->GetComponentLocation().Z<9000,TEXT("apply returns to the wall"));
+				Check(Climber->HumanRig.JointLimits()[Joint].Forward==120&&Climber->GateRig.JointLimits()[Joint].Forward==120,TEXT("live rig and reach gate receive edited limit"));
+				Check(Climber->Sim.Position.Equals(StudioProofPosition,.0001),TEXT("apply preserves climbing position"));
+			}
+			if(FormProofTime>7 && !StudioProofWallShot){FScreenshotRequest::RequestScreenshot(Shots/TEXT("rig-applied-wall.png"),true,false);StudioProofWallShot=true;}
+			if(FormProofTime>8){IFileManager::Get().Delete(*StudioProofPath);ConsoleCommand(TEXT("quit"));}
+		}
+		if(FParse::Param(FCommandLine::Get(),TEXT("formshot")))
+		{
+			if(FormProofTime>4 && !FormProofShot){FScreenshotRequest::RequestScreenshot(Shots/TEXT("player-form.png"),true,false);FormProofShot=true;}
+			if(FormProofTime>5)ConsoleCommand(TEXT("quit"));
+		}
+	}
 	if(!ReferenceStartupHandled && Climber->Walker->GetSkeletalMeshAsset()){ReferenceStartupHandled=true;if(FParse::Param(FCommandLine::Get(),TEXT("referencepreview")))ToggleReferencePreview();}
+	if(!GymActor) GymActor=Cast<AGymActor>(UGameplayStatics::GetActorOfClass(this,AGymActor::StaticClass()));
 	FClimbSim& Sim = Climber->Sim;
 	if(FParse::Param(FCommandLine::Get(),TEXT("flowtest")))VerifyFlow(Delta);
-	if(WasInputKeyJustPressed(EKeys::M))ToggleMenu();
+	if(WasInputKeyJustPressed(EKeys::M) && !Climber->Form.Open)ToggleMenu();
 	if(WasInputKeyJustPressed(EKeys::Escape) && (Limb<0 || MenuOpen))
 	{
-		if(FirstPerson && !FreeCursor && !MenuOpen){FreeCursor=true;InputMode();}
+		if((FirstPerson || (Mode==0 && !ReferencePreview)) && !FreeCursor && !MenuOpen){FreeCursor=true;InputMode();}
 		else ToggleMenu();
 	}
-	if(FirstPerson && FreeCursor && !MenuOpen && WasInputKeyJustPressed(EKeys::LeftMouseButton)){FreeCursor=false;InputMode();}
+	if((FirstPerson || Mode==0) && FreeCursor && !MenuOpen && WasInputKeyJustPressed(EKeys::LeftMouseButton)){FreeCursor=false;InputMode();}
 	Climber->Walking = ReferencePreview || Mode == 0;
-	Climber->Paused=MenuOpen;Climber->Walker->bPauseAnims=MenuOpen;
+	Climber->Paused=MenuOpen;Climber->Walker->bPauseAnims=MenuOpen && !Climber->Form.Open;
+	if(Climber->Form.Open)
+	{
+		Climber->Form.Tick(*Climber->Walker,Delta);
+		for(int32 I=-10;I<=10;++I)
+		{
+			DrawDebugLine(GetWorld(),FVector(I*25,-250,10000.0),FVector(I*25,250,10000.0),FColor(80,95,110),false,-1,0,.6);
+			DrawDebugLine(GetWorld(),FVector(-250,I*25,10000.0),FVector(250,I*25,10000.0),FColor(80,95,110),false,-1,0,.6);
+		}
+	}
 	Climber->ClothEnabled=FabricMotion;
 	if(MenuOpen)
 	{
@@ -256,31 +393,27 @@ void ARougarouController::PlayerTick(float Delta)
 		}
 		return;
 	}
+	if(!PendingLook.IsZero())
+	{
+		const FVector2D Turn=PendingLook.SizeSquared()<1e-9?PendingLook:PendingLook*(1-FMath::Exp(-30*Delta));
+		PendingLook-=Turn;ApplyLook(Turn);
+	}
 	if(ReferencePreview){if(WasInputKeyJustPressed(EKeys::J)){ToggleReferencePreview();return;}ReferenceCamera(Delta);return;}
 	if(WasInputKeyJustPressed(EKeys::V))TogglePerspective();
 	FirstBlend=FMath::FInterpConstantTo(FirstBlend,FirstPerson?1.f:0.f,Delta,1.f/.45f);
 	Climber->FirstPersonAmount=FirstBlend;Climber->SetInside(FirstBlend>.5f);
-	if(FirstPerson)
+	if(FirstPerson && Mode!=0)
 	{
-		float DX=0,DY=0;if(!FreeCursor)GetInputMouseDelta(DX,DY);
-		if(Mode==0){WalkYaw+=DX*.0025f*LookSensitivity;RoamPitch=FMath::Clamp(RoamPitch+DY*.002f*LookSensitivity,-1.4f,1.4f);}
-		else{if(FMath::Abs(DX)+FMath::Abs(DY)>.001f)OpeningHold=-1;FirstYaw=FMath::Clamp(FirstYaw+DX*.0025f*LookSensitivity,-2.8f,2.8f);FirstPitch=FMath::Clamp(FirstPitch+DY*.002f*LookSensitivity,-1.4f,1.4f);FirstKeys();}
+		float DX=0,DY=0;
+		if(!FreeCursor) GetInputMouseDelta(DX,DY);
+		if(FMath::Abs(DX)+FMath::Abs(DY)>.001f)
+		{
+			const float Sensitivity=LookSensitivity*(InvertLook?-1.f:1.f);
+			ApplyLook(FVector2D(DX*.00085f,DY*.0007f)*Sensitivity);
+		}
 	}
 	if (Mode == 0)
 	{
-		// free roam on the mats: mouse steers, wasd moves relative to the view, shift jogs
-		float MX = 0, MY = 0;
-		if (!FirstPerson && IsInputKeyDown(EKeys::RightMouseButton))
-		{
-			FVector2D Mouse;
-			if (GetMousePosition(Mouse.X,Mouse.Y))
-			{
-				if (Looking) { MX = Mouse.X - LastMouse.X; MY = Mouse.Y - LastMouse.Y; }
-				LastMouse=Mouse; Looking=true;
-			}
-		} else Looking=false;
-		WalkYaw -= MX * 0.005f*LookSensitivity;
-		WalkPitch = FMath::Clamp(WalkPitch + MY * 0.004f*LookSensitivity, -0.35f, 0.9f);
 		const FVector F(FMath::Cos(WalkYaw), FMath::Sin(WalkYaw), 0), R(-F.Y, F.X, 0);
 		FVector Move = FVector::ZeroVector;
 		if (IsInputKeyDown(EKeys::W)) Move += F;
@@ -288,7 +421,7 @@ void ARougarouController::PlayerTick(float Delta)
 		if (IsInputKeyDown(EKeys::D)) Move += R;
 		if (IsInputKeyDown(EKeys::A)) Move -= R;
 		const bool MotionTest=FParse::Param(FCommandLine::Get(),TEXT("motiontest"));
-		bool Run=IsInputKeyDown(EKeys::LeftShift);
+		bool Run=IsInputKeyDown(EKeys::LeftShift)||IsInputKeyDown(EKeys::RightShift);
 		if(MotionTest)
 		{
 			Move=Elapsed<1 ? FVector::ZeroVector : Elapsed<5 ? FVector(0,-1,0) : Elapsed<6.5 ? FVector(1,0,0) : FVector::ZeroVector;
@@ -298,6 +431,18 @@ void ARougarouController::PlayerTick(float Delta)
 			[](FVector From,FVector Step) { return AGymActor::MoveWalker(From,Step); });
 		WalkAt = Locomotion.At;
 		Climber->Walk(WalkAt, Locomotion.Yaw, Locomotion.Velocity.Size2D());
+		PadLanding=false;
+		if(GymActor && Climber->Walker->GetSkeletalMeshAsset())
+		{
+			const float Speed=Locomotion.Velocity.Size2D();
+			for(const FName Foot:{FName(TEXT("LeftToeBase")),FName(TEXT("RightToeBase"))})
+			{
+				if(Climber->Walker->GetBoneIndex(Foot)==INDEX_NONE) continue;
+				const FVector Toe=Climber->Walker->GetBoneLocation(Foot);
+				const float Contact=1-FMath::SmoothStep(35.f,43.f,float(Toe.Z));
+				GymActor->PressPad(Toe,Contact*FMath::Lerp(.28f,1.25f,FMath::Clamp(Speed/380.f,0.f,1.f)),false);
+			}
+		}
 		// the nearest problem's first start hold, so e can pull you onto it
 		Near = -1;
 		float Best = 300;
@@ -328,7 +473,7 @@ void ARougarouController::PlayerTick(float Delta)
 		}
 		const FVector Goal = MotionTest ? WalkAt + FVector(330,-300,150) : WalkAt - F * 420*CameraDistance + FVector(0, 0, 180 + WalkPitch * 220);
 		const FVector Look = WalkAt + FVector(0, 0, 110 - WalkPitch * 60);
-		const float Speed = MotionTest ? 20 : FVector::Distance(View->GetActorLocation(), Goal) > 300 ? 1.6f : 4;
+		const float Speed = MotionTest ? 20 : FollowSpeed(View->GetActorLocation(), Goal);
 		View->SetActorLocation(FMath::VInterpTo(View->GetActorLocation(), Goal, Delta, Speed));
 		View->SetActorRotation(FMath::RInterpTo(View->GetActorRotation(), (Look - View->GetActorLocation()).Rotation(), Delta, Speed * 2));
 		FirstCamera(Delta);
@@ -336,9 +481,31 @@ void ARougarouController::PlayerTick(float Delta)
 		return;
 	}
 	FVector2D Point;
-	bool Over = Cursor(Point);
+	int32 CursorHold = INDEX_NONE;
+	bool Over = Cursor(Point, CursorHold);
 	// a fall restarts the climb underneath us; whatever limb was lifted is gone with it
-	if (Sim.Fallen) { const FString Why = Sim.Hint; Sim.Restart(); Sim.Hint = Why; }
+	// a fall plays out onto the mats first; then the climb restarts underneath us
+	if(!Sim.Fallen) PadLanding=false;
+	if (Sim.Fallen)
+	{
+		if(!PadLanding && GymActor && Climber->FallTime>=0 && Climber->FallTime>=Climber->FallAir)
+		{
+			PadLanding=true;
+			GymActor->PressPad(Climber->FallSpot,FMath::Clamp(1.4f+Climber->FallDrop*.012f,1.4f,3.f),true);
+		}
+		Limb = -1;
+		// the fall plays out and the climber gets up; from there you are on the mats, free to walk back to the start
+		if (Climber->FallDone() && !Shooting)
+		{
+			Near = Sim.Route;
+			WalkAt = Climber->FallSpot; Locomotion.At = WalkAt; Locomotion.Velocity = FVector::ZeroVector;
+			Locomotion.Yaw = WalkYaw = Climber->FallYaw;
+			Sim.Restart();
+			Mode = 0; SmoothLean = FVector2D::ZeroVector;
+			InputMode();
+			return;
+		}
+	}
 	if (Sim.Falls != Falls) { Falls = Sim.Falls; Limb = -1; }
 	// -shot -lift: scripted left-hand move, to check reaching and placing without a person at the mouse
 	if (Shooting && FParse::Param(FCommandLine::Get(), TEXT("lift")))
@@ -348,34 +515,44 @@ void ARougarouController::PlayerTick(float Delta)
 		Test = FMath::Clamp(Test, 0, 3);
 		// -lift: take the right foot off and reach it into a high step, to check the hip limit and the knee
 		if (Clock > 1.5f && Clock < 2 && Limb < 0) Press(Tip(Test));
-		if (Limb >= 0) { Over = true; Point = Sim.Joint(Test) + FVector2D(Test % 2 == 0 ? -0.25f : 0.25f, 0.9f); }
+		if (Limb >= 0)
+		{
+			Over = true;
+			const float Side = Test % 2 == 0 ? -1.f : 1.f;
+			// -sweep: carry the limb slowly up from a hang to a high step and across, to watch the joints the whole way
+			Point = Sim.Joint(Test) + (FParse::Param(FCommandLine::Get(), TEXT("sweep"))
+				? FVector2D(Side * (.05f + .3f * (.5f - .5f * FMath::Cos(Clock * 1.1f))), -.6f + .75f * (.5f - .5f * FMath::Cos(Clock * .7f)))
+				: FVector2D(Side * .25f, .9f));
+		}
 	}
 	int32 Snap = -1;
 	if (Over && Limb >= 0)
 	{
-		// the hold nearest the cursor is the one being aimed at; ask the body (reach, hip and skeleton) once when it changes and a few times a second after
-		int32 Best = -1; float Closest = .25f;
-		for (int32 Hold = 0; Hold < Sim.Holds().Num(); Hold++)
+		const int32 Best = CursorHold;
+		float Across=0;
+		if(Best>=0)
 		{
-			const float Gap = FVector2D::Distance(Sim.Holds()[Hold].Point, Point);
-			if (Gap < Closest) { Closest = Gap; Best = Hold; }
+			const auto& Resin=Sim.Holds()[Best];
+			Across=FMath::Clamp(float(FVector2D::DotProduct(Point-Resin.Point,FClimbSim::GripSide(Resin))*100/FClimbSim::GripWidth(Resin)),-1.f,1.f);
 		}
-		if (Best != Hovered || FVector2D::Distance(HoverFrom, Sim.Position) > .04f)
+		// ask again a few times a second: the hips keep moving, and what was out of reach may not be any more
+		HoverClock += Delta;
+		if (Best != Hovered || HoverClock > .25f)
 		{
-			Hovered = Best; HoverFrom = Sim.Position;
-			HoverWhy = Best >= 0 ? Sim.Check(Limb, Best) : FString();
+			HoverClock = 0;
+			Hovered = Best;
+			HoverWhy = Best >= 0 ? Sim.Check(Limb, Best, Across) : FString();
 			HoverReady = Best >= 0 && HoverWhy.IsEmpty();
 		}
 		// a takeable hold pulls the hand in as the cursor nears it, so landing it does not take pixel aim
 		FVector2D Wanted = Point;
 		if (Hovered >= 0 && HoverReady)
 		{
-			const float Pull = FMath::SmoothStep(.16f, .03f, Closest);
-			Wanted = FMath::Lerp(Point, Sim.Holds()[Hovered].Point, Pull);
-			if (Pull > .3f) Snap = Hovered;
+			Wanted = FClimbSim::GripPoint(Sim.Holds()[Hovered],Across);
+			Snap = Hovered;
 		}
 		// the guide eases toward the cursor instead of teleporting with it, and the hand follows the guide until the limb runs out of length
-		Guide = Guide.IsZero() ? Wanted : FMath::Lerp(Guide, Wanted, 1 - FMath::Exp(-22 * Delta));
+		Guide = Guide.IsZero() ? Wanted : FMath::Lerp(Guide, Wanted, 1 - FMath::Exp(-15 * Delta));
 		Aim = Sim.Clamp(Limb, Guide);
 	}
 	else if (Limb < 0) { Hovered = -1; HoverReady = false; HoverWhy.Reset(); Guide = FVector2D::ZeroVector; }
@@ -385,10 +562,22 @@ void ARougarouController::PlayerTick(float Delta)
 	Sim.Target = Over && Limb >= 0 ? Guide : Aim;
 	Climber->Hovered = Limb >= 0 ? Hovered : -1;
 	Climber->HoverReady = HoverReady;
-	if (!FirstPerson && Over && WasInputKeyJustPressed(EKeys::LeftMouseButton)) Press(Point);
+	if (!FirstPerson && Over && WasInputKeyJustPressed(EKeys::LeftMouseButton)) Press(Point, CursorHold);
+	// q and e are the hands, z and c the feet, laid out like the body seen from behind. from outside they pick a limb up
+	// (again puts it back); through your own eyes they send it to the hold you are looking at
+	static const FKey LimbKeys[4] = { EKeys::C, EKeys::Z, EKeys::E, EKeys::Q };
+	for (int32 Index = 0; Index < 4; Index++)
+	{
+		if (!WasInputKeyJustPressed(LimbKeys[Index])) continue;
+		if (FirstPerson) { SendLimb(Index); break; }
+		const bool Same = Limb == Index;
+		if (Limb >= 0) Cancel();
+		if (!Same) Lift(Index);
+		break;
+	}
 	if (Limb >= 0 && (WasInputKeyJustPressed(EKeys::Escape) || WasInputKeyJustPressed(EKeys::RightMouseButton))) Cancel();
 	if (Limb >= 0 && WasInputKeyJustPressed(EKeys::X)) Limb = -1;
-	if (!FirstPerson && WasInputKeyJustPressed(EKeys::R)) Retry();
+	if (WasInputKeyJustPressed(EKeys::R)) Retry();
 	if (WasInputKeyJustPressed(EKeys::J)) Dismount();
 	const int32 Count = Sim.Spec.Routes.Num();
 	if (WasInputKeyJustPressed(EKeys::RightBracket) || WasInputKeyJustPressed(EKeys::LeftBracket))
@@ -404,13 +593,15 @@ void ARougarouController::PlayerTick(float Delta)
 	if (IsInputKeyDown(EKeys::D)) Lean.X -= 1;
 	if (IsInputKeyDown(EKeys::W)) Lean.Y += 1;
 	if (IsInputKeyDown(EKeys::S)) Lean.Y -= 1;
-	Sim.Lean = (FirstPerson?LatchedLean:Lean) * 0.6f;
+	// the push comes on and lets go like a muscle, not a switch
+	SmoothLean = FMath::Lerp(SmoothLean, Lean, 1 - FMath::Exp(-9 * Delta));
+	Sim.Lean = SmoothLean * 0.6f;
 	Climber->Selected = Limb;
 	// g flips between the gym overview and the climb; the opening shot holds the overview for a few seconds
 	Elapsed += Delta;
 	if (WasInputKeyJustPressed(EKeys::G)) Wide = !Wide;
 	const bool Overview = Wide || Elapsed < 3;
-	const FVector Hips = Climber->Place(Sim.Position, 0);
+	const FVector Hips = Sim.Fallen ? Climber->BodyAt : Climber->Place(Sim.Position, 0);
 	// stand back from the face, level with the climber, so overhangs never drive the camera into the floor
 	const FClimbRoute& Face = Sim.Spec.Routes[Sim.Route];
 	FVector Out = Face.At(Sim.Position.Y).Out;
@@ -422,7 +613,7 @@ void ARougarouController::PlayerTick(float Delta)
 	const FVector Goal = Overview ? AGymActor::Overview : Hips + Out * Face.Stand*CameraDistance * (ContactShot ? .65f : 1.f)
 		+ Face.At(Sim.Position.Y).Right * (Face.Aside + (ContactShot ? 250.f : 0.f)) + FVector(0, 0, 30+FMath::Sin(ClimbOrbitPitch)*Face.Stand*CameraDistance);
 	const FVector Look = Overview ? AGymActor::Focus : Hips + FVector(0, 0, 25);
-	const float Speed = Overview || FVector::Distance(View->GetActorLocation(), Goal) > 300 ? 1.6f : 4;
+	const float Speed = Overview ? 1.6f : FollowSpeed(View->GetActorLocation(), Goal);
 	View->SetActorLocation(FMath::VInterpTo(View->GetActorLocation(), Goal, Delta, Speed));
 	View->SetActorRotation(FMath::RInterpTo(View->GetActorRotation(), (Look - View->GetActorLocation()).Rotation(), Delta, Speed * 2));
 	FirstCamera(Delta);
@@ -436,12 +627,22 @@ void ARougarouController::PlayerTick(float Delta)
 			FScreenshotRequest::RequestScreenshot(Shots / TEXT("gym.png"), false, false);
 			Gym = true;
 		}
-		if (Clock > 6.5f && !Taken)
+		// -fall: let go with both hands and capture the fall mid-air and on the mats
+		if (FParse::Param(FCommandLine::Get(), TEXT("fall")))
+		{
+			static int32 FallStage = 0;
+			if (FallStage == 0 && Clock > 4) { Climber->Sim.Drop(2); Climber->Sim.Drop(3); FallStage = 1; }
+			if (FallStage == 1 && Climber->FallTime > Climber->FallAir * .7f) { FScreenshotRequest::RequestScreenshot(Shots / TEXT("fall-air.png"), true, false); FallStage = 2; }
+			if (FallStage == 2 && Climber->FallTime > Climber->FallAir + .45f) { FScreenshotRequest::RequestScreenshot(Shots / TEXT("fall-land.png"), true, false); FallStage = 3; }
+			if (FallStage == 3 && Climber->FallTime > Climber->FallAir + 1.0f) { FScreenshotRequest::RequestScreenshot(Shots / TEXT("fall-ground.png"), true, false); FallStage = 4; }
+			if (FallStage == 4 && Climber->FallDone()) { FScreenshotRequest::RequestScreenshot(Shots / TEXT("fall-up.png"), true, false); FallStage = 5; }
+		}
+		if (Clock > (FParse::Param(FCommandLine::Get(), TEXT("fall")) ? 3.5f : 6.5f) && !Taken)
 		{
 			FScreenshotRequest::RequestScreenshot(Shots / TEXT("shot.png"), true, false);
 			Taken = true;
 		}
-		if (Clock > 8) ConsoleCommand(TEXT("quit"));
+		if (Clock > (FParse::Param(FCommandLine::Get(), TEXT("fall")) ? 9.f : 8.f)) ConsoleCommand(TEXT("quit"));
 	}
 }
 
@@ -486,6 +687,10 @@ void ARougarouController::Status() const
 void ARougarouController::EndPlay(const EEndPlayReason::Type Reason)
 {
 	if(Interface.IsValid() && GEngine && GEngine->GameViewport)GEngine->GameViewport->RemoveViewportWidgetContent(Interface.ToSharedRef());
+#if PLATFORM_MAC
+	if(ScrollMonitor){[NSEvent removeMonitor:ScrollMonitor];ScrollMonitor=nil;}
+#endif
+	ScrollCoasting=false;
 	if(TrackpadInput.IsValid() && FSlateApplication::IsInitialized())FSlateApplication::Get().UnregisterInputPreProcessor(TrackpadInput);
 	TrackpadInput.Reset();Interface.Reset();Super::EndPlay(Reason);
 }
@@ -493,6 +698,7 @@ FString ARougarouController::SettingsFile() const{return FPaths::ProjectSavedDir
 void ARougarouController::SaveSettings()
 {
 	GConfig->SetBool(TEXT("Camera"),TEXT("TrackpadLook"),TrackpadLook,SettingsFile());
+	GConfig->SetBool(TEXT("Camera"),TEXT("InvertLook"),InvertLook,SettingsFile());
 	GConfig->SetFloat(TEXT("Camera"),TEXT("Look"),LookSensitivity,SettingsFile());
 	GConfig->SetFloat(TEXT("Camera"),TEXT("Distance"),CameraDistance,SettingsFile());
 	GConfig->SetBool(TEXT("Display"),TEXT("Gauges"),ShowGauges,SettingsFile());
@@ -511,8 +717,9 @@ void ARougarouController::ApplyQuality()
 void ARougarouController::InputMode()
 {
 	Looking=false;
-	bShowMouseCursor=MenuOpen || !FirstPerson || FreeCursor;
-	if(!MenuOpen && FirstPerson && !FreeCursor)
+	const bool Capture=!MenuOpen && !FreeCursor && (FirstPerson || (Mode==0 && !ReferencePreview));
+	bShowMouseCursor=!Capture;
+	if(Capture)
 	{
 		FInputModeGameOnly Input;Input.SetConsumeCaptureMouseDown(false);SetInputMode(Input);
 	}
@@ -522,7 +729,7 @@ void ARougarouController::InputMode()
 	}
 	if(!MenuOpen)FSlateApplication::Get().SetAllUserFocusToGameViewport();
 }
-void ARougarouController::ToggleMenu(){MenuOpen=!MenuOpen;FreeCursor=false;if(MenuOpen && Interface.IsValid())Interface->Refresh();InputMode();}
+void ARougarouController::ToggleMenu(){if(Climber && Climber->Form.Open){TogglePlayerForm();return;}MenuOpen=!MenuOpen;PendingLook=FVector2D::ZeroVector;FreeCursor=false;if(MenuOpen && Interface.IsValid())Interface->Refresh();InputMode();}
 void ARougarouController::TogglePerspective()
 {
 	if(ReferencePreview)return;
@@ -548,7 +755,7 @@ void ARougarouController::TogglePerspective()
 	}
 	InputMode();
 }
-void ARougarouController::Retry(){Climber->Sim.Restart();Limb=-1;LatchedLean=FVector2D::ZeroVector;}
+void ARougarouController::Retry(){Climber->Sim.Restart();Limb=-1;SmoothLean=FVector2D::ZeroVector;}
 void ARougarouController::VisitProblem(int32 Index,bool Climb)
 {
 	if(!Climber || !Climber->Sim.Spec.Routes.IsValidIndex(Index))return;
@@ -573,44 +780,26 @@ FString ARougarouController::Hint() const
 	if(ReferencePreview)return TEXT("recorded physics · 90% harness · not live training");
 	if(Mode==0)return Near>=0?TEXT("ready when you are"):TEXT("walk the gym. find your next problem.");
 	if(Climber->Sim.Won)return TEXT("sent. nice work.");
-	if(FirstPerson && PickSide>=0)return SidePrompt();
-	if(FirstPerson)return AimedHold>=0?TEXT("hold in sight / choose a hand or foot"):TEXT("look at a hold to reach it");
+
+	if(FirstPerson)return AimedHold>=0?TEXT("hold in sight: q e for a hand, z c for a foot"):TEXT("look at a hold to reach it");
 	if(Limb>=0)
 	{
 		if(Hovered>=0)return HoverReady?TEXT("click to take it"):HoverWhy;
-		return TEXT("reach for a hold, then click");
+		return TEXT("click a hold to grab, or reachable bare wall to press");
 	}
-	return TEXT("choose a hand or foot");
+	return TEXT("pick up a hand or foot");
 }
 FString ARougarouController::Keys() const
 {
 	if(ReferencePreview)return TEXT("two-finger swipe / Option + move to orbit   j back to gym   m menu");
-	if(Mode==0)return FirstPerson?TEXT("wasd move   shift run   e climb   v view   m menu"):TEXT("wasd move   shift run   two-finger swipe look   v view   m menu");
-	return FirstPerson?TEXT("r/l then a arm or l leg   arrows hips   space center   esc cursor   v view"):TEXT("wasd hips   x release   r retry   j drop   v view   m menu");
+	if(Mode==0)return TEXT("wasd move   shift sprint   pointer look   v view   m menu");
+	return FirstPerson?TEXT("q e hands   z c feet   wasd hips   r retry   j drop   esc cursor   v view"):TEXT("q e hands   z c feet   wasd hips   x let go   r retry   j drop   v view");
 }
 void ARougarouController::SendLimb(int32 Index)
 {
 	PickSide=-1;OpeningHold=-1;if(Mode!=1)return;
 	if(AimedHold<0){Climber->Sim.Hint=TEXT("look at a hold first");return;}
 	Limb=-1;Climber->Sim.Grab(Index,AimedHold);
-}
-void ARougarouController::FirstKeys()
-{
-	const double Now=FPlatformTime::Seconds();if(Now-PickTime>1.6)PickSide=-1;
-	// Resolve a pending leg before L can begin a new left-side pick.
-	if(PickSide>=0 && (WasInputKeyJustPressed(EKeys::A)||WasInputKeyJustPressed(EKeys::L)))
-		SendLimb(WasInputKeyJustPressed(EKeys::A)?(PickSide==0?2:3):(PickSide==0?0:1));
-	else if(WasInputKeyJustPressed(EKeys::R)||WasInputKeyJustPressed(EKeys::L))
-	{PickSide=WasInputKeyJustPressed(EKeys::R)?0:1;PickTime=Now;}
-	if(WasInputKeyJustPressed(EKeys::One))SendLimb(2);
-	if(WasInputKeyJustPressed(EKeys::Two))SendLimb(3);
-	if(WasInputKeyJustPressed(EKeys::Three))SendLimb(0);
-	if(WasInputKeyJustPressed(EKeys::Four))SendLimb(1);
-	if(WasInputKeyJustPressed(EKeys::Left))LatchedLean.X=LatchedLean.X==1?0:1;
-	if(WasInputKeyJustPressed(EKeys::Right))LatchedLean.X=LatchedLean.X==-1?0:-1;
-	if(WasInputKeyJustPressed(EKeys::Up))LatchedLean.Y=LatchedLean.Y==1?0:1;
-	if(WasInputKeyJustPressed(EKeys::Down))LatchedLean.Y=LatchedLean.Y==-1?0:-1;
-	if(WasInputKeyJustPressed(EKeys::SpaceBar))LatchedLean=FVector2D::ZeroVector;
 }
 void ARougarouController::FirstCamera(float Delta)
 {
@@ -667,7 +856,7 @@ void ARougarouController::VerifyFlow(float Delta)
  case 0:if(FlowTime>.8){Check(MenuOpen,TEXT("menu opens on launch"));Check(!LookFromTrackpad(FVector2D(30,20)),TEXT("menu leaves trackpad scrolling unconsumed"));Shot(TEXT("menu.png"));FlowStage++;}break;
  case 1:if(FlowTime>1.2){Interface->SelectTab(1);Shot(TEXT("settings.png"));FlowStage++;}break;
  case 2:if(FlowTime>1.6){Interface->SelectTab(2);Shot(TEXT("help.png"));FlowStage++;}break;
- case 3:if(FlowTime>2){VisitProblem(0,false);Check(!MenuOpen&&Mode==0&&!AGymActor::WalkerBlocked(WalkAt),TEXT("walk there finds clear floor"));const float Yaw=WalkYaw;Check(LookFromTrackpad(FVector2D(30,20)) && WalkYaw!=Yaw,TEXT("trackpad gesture rotates walking camera"));TrackpadLook=false;Check(!LookFromTrackpad(FVector2D(30,20)),TEXT("trackpad setting disables gesture"));TrackpadLook=true;FlowStage++;}break;
+ case 3:if(FlowTime>2){VisitProblem(0,false);Check(!MenuOpen&&Mode==0&&!AGymActor::WalkerBlocked(WalkAt),TEXT("walk there finds clear floor"));Check(!bShowMouseCursor && !LookFromTrackpad(FVector2D(30,20)),TEXT("roam captures the pointer and ignores scroll look"));PendingLook=FVector2D::ZeroVector;Check(LookFromPointer(FVector2D(30,20))&&PendingLook.X>0&&PendingLook.Y<0,TEXT("ordinary pointer motion queues roam camera yaw and pitch"));PendingLook=FVector2D::ZeroVector;FlowStage++;}break;
  case 4:if(FlowTime>2.8){VisitProblem(0,true);Check(Mode==1&&Climber->Sim.Route==0,TEXT("climb it mounts selected problem"));FlowStage++;}break;
  case 5:if(FlowTime>4){TogglePerspective();Check(FirstPerson,TEXT("first person toggles on"));FlowStage++;}break;
  case 6:if(FlowTime>5){Check(FirstBlend>.99&&!bShowMouseCursor,TEXT("first person finishes transition and captures mouse"));Check(!View->GetActorLocation().ContainsNaN(),TEXT("eye camera stays finite"));Check(AimedHold>=0 && Climber->Sim.Holds()[AimedHold].Point.Y>FMath::Max(Climber->Sim.Tips[2].Y,Climber->Sim.Tips[3].Y),TEXT("opening view targets the next hand hold"));UE_LOG(LogTemp,Display,TEXT("FP PROOF eye=%s cached=%s forward=%s up=%s"),*View->GetActorLocation().ToString(),*Climber->Eye.ToString(),*View->GetActorForwardVector().ToString(),*FirstUp.ToString());Shot(TEXT("first-person.png"));FlowStage++;}break;
@@ -676,4 +865,68 @@ void ARougarouController::VerifyFlow(float Delta)
  case 9:if(FlowTime>7){Shot(TEXT("player.png"));FlowStage++;}break;
  case 10:if(FlowTime>7.5){UE_LOG(LogTemp,Display,TEXT("FLOW COMPLETE"));ConsoleCommand(TEXT("quit"));FlowStage++;}break;
  }
+}
+
+void ARougarouController::TogglePlayerForm()
+{
+ if(!Climber || !Climber->Walker->GetSkeletalMeshAsset())return;
+ if(Climber->Form.Open)
+ {
+  Climber->Form.End(*Climber->Walker);Climber->SetInside(FirstBlend>.5f);
+  Climber->Walker->SetWorldTransform(FormCharacterTransform);Climber->Walker->ForceClothNextUpdateTeleportAndReset();
+  if(FormStage){FormStage->Destroy();FormStage=nullptr;}
+  View->SetActorTransform(FormCamera);
+ }
+ else
+ {
+  FormCamera=View->GetActorTransform();FormCharacterTransform=Climber->Walker->GetComponentTransform();
+  Climber->Form.Begin(*Climber->Walker);if(!Climber->Form.Open)return;
+  MenuOpen=true;Climber->Paused=true;Climber->SetInside(false);
+  const FVector Origin(0,0,10000);
+  Climber->Walker->SetWorldTransform(FTransform(FQuat::Identity,Origin));
+  Climber->Walker->SetVisibility(true);Climber->Walker->bPauseAnims=false;
+  FormStage=GetWorld()->SpawnActor<AActor>();
+  USceneComponent* Root=NewObject<USceneComponent>(FormStage);FormStage->SetRootComponent(Root);Root->RegisterComponent();FormStage->SetActorLocation(Origin);
+  auto* Mat=UMaterialInstanceDynamic::Create(LoadObject<UMaterialInterface>(nullptr,TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")),FormStage);
+  Mat->SetVectorParameterValue(TEXT("Color"),FLinearColor(.025,.03,.035));
+  auto Box=[&](FVector At,FVector Scale)
+  {
+   auto* Part=NewObject<UStaticMeshComponent>(FormStage);Part->SetupAttachment(Root);
+   Part->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube")));Part->SetMaterial(0,Mat);
+   Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);Part->SetRelativeLocation(At);Part->SetRelativeScale3D(Scale);Part->RegisterComponent();
+  };
+  Box(FVector(0,0,-3),FVector(12,12,.04));
+  Box(FVector(0,600,300),FVector(12,.04,6));Box(FVector(0,-600,300),FVector(12,.04,6));
+  Box(FVector(600,0,300),FVector(.04,12,6));Box(FVector(-600,0,300),FVector(.04,12,6));
+  const auto& Ref=Climber->Walker->GetSkeletalMeshAsset()->GetRefSkeleton();
+  TArray<FTransform> Space=Climber->Form.Draft.NeutralPose();
+  for(int32 I=0;I<Space.Num();++I)if(Ref.GetParentIndex(I)>=0)Space[I]*=Space[Ref.GetParentIndex(I)];
+  const FVector Front=FVector::VectorPlaneProject(Space[Ref.FindBoneIndex(TEXT("LeftToeBase"))].GetLocation()-Space[Ref.FindBoneIndex(TEXT("LeftFoot"))].GetLocation(),FVector::UpVector).GetSafeNormal();
+  const FVector Side=FVector::CrossProduct(Front,FVector::UpVector);
+  for(int32 I=0;I<3;++I)
+  {
+   auto* Light=NewObject<UPointLightComponent>(FormStage);Light->SetupAttachment(Root);
+   Light->SetRelativeLocation(Front*(I==2?-130:180)+Side*(I==0?-160:160)+FVector(0,0,240));
+   Light->SetIntensity(I==0?5500:3000);Light->SetAttenuationRadius(900);Light->SetLightColor(I==1?FLinearColor(.8,.88,1):FLinearColor(1,.95,.88));Light->RegisterComponent();
+  }
+  const FVector Center=Origin+FVector(0,0,92);
+  View->SetActorLocation(Center+Front*330+FVector(0,0,10));View->SetActorRotation((Center-View->GetActorLocation()).Rotation());
+ }
+ if(Interface.IsValid())Interface->Refresh();InputMode();
+}
+void ARougarouController::ApplyPlayerForm(const FString& Destination)
+{
+ if(!Climber||!Climber->Form.Open)return;
+ if(!Climber->Form.Apply(*Climber->Walker,Climber->HumanRig,Climber->GateRig,Destination)){if(Interface.IsValid())Interface->Refresh();return;}
+ TogglePlayerForm();MenuOpen=false;InputMode();
+}
+void ARougarouController::ShowPlayerFormFiles(){IFileManager::Get().MakeDirectory(*FPlayerForm::Folder(),true);FPlatformProcess::ExploreFolder(*FPaths::ConvertRelativePathToFull(FPlayerForm::Folder()));}
+void ARougarouController::OrbitPlayerForm(float Yaw,float Pitch,float Zoom)
+{
+ if(!Climber || !Climber->Form.Open)return;
+ const FVector Center=Climber->Walker->GetBoneLocation(TEXT("Spine"));
+ FVector Offset=View->GetActorLocation()-Center;
+ Offset=Offset.RotateAngleAxis(Yaw,FVector::UpVector).RotateAngleAxis(Pitch,View->GetActorRightVector());
+ Offset=Offset.GetSafeNormal()*FMath::Clamp(float(Offset.Size()+Zoom),90.f,650.f);
+ View->SetActorLocation(Center+Offset);View->SetActorRotation((-Offset).Rotation());
 }

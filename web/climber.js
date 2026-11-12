@@ -16,6 +16,10 @@ const Y = new THREE.Vector3(0, 1, 0);
 const Z = new Vec3(0, 0, 1);
 const three = (v) => new THREE.Vector3(...toThree(v));
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smoothStep = (a, b, v) => {
+	const t = clamp((v - a) / (b - a), 0, 1);
+	return t * t * (3 - 2 * t);
+};
 const mid = (a, b) => a.add(b).mul(0.5);
 const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
 // each limb's two bones in centimeters: the sim's limb lengths
@@ -201,7 +205,7 @@ export class Climber {
 	}
 
 	// forget the eased body shape, for a fresh start on the wall
-	reset() { this.turn = 0; this.hips = 18; this.chestDepth = 22; this.look = null; this.hem = new Vec3(); this.swing = new Vec3(); this.moving = null; this.last = null; }
+	reset() { this.turn = 0; this.hips = 18; this.chestDepth = 22; this.hanging = [0, 0, 0, 0]; this.look = null; this.hem = new Vec3(); this.swing = new Vec3(); this.moving = null; this.last = null; }
 
 	segment(mesh, a, b, radius) {
 		const A = three(a), B = three(b);
@@ -268,7 +272,7 @@ export class Climber {
 		// the thumb: wrapped over the index on a crimp, opposed across the hold on a pinch, alongside otherwise
 		const root = palm.add(thumb.mul(2.8)).sub(over.mul(2.5));
 		let one = over.mul(0.6).add(thumb.mul(0.7)), two = over.mul(0.8).sub(thumb.mul(0.2));
-		if (grip === 'crimp') { one = over.mul(0.7).add(out.mul(0.6)); two = thumb.mul(-0.9).add(over.mul(0.3)); }
+		if (grip === 'crimp') { one = over.mul(0.7).add(out.mul(0.6)); two = thumb.mul(-0.35).add(over.mul(0.75)); }
 		else if (grip === 'pinch') { one = over.mul(0.4).add(thumb.mul(0.5)).sub(out.mul(0.7)); two = over.mul(0.6).sub(thumb.mul(0.3)).sub(out.mul(0.6)); }
 		const middle = root.add(one.norm().mul(4.2));
 		finger(tubes[4], root, middle, middle.add(two.norm().mul(3.2)), 2.4);
@@ -285,17 +289,45 @@ export class Climber {
 		for (let l = 2; l < 4 && mover < 0; l++) if (sim.latch[l] < 0 && sim.grips[l] >= 0) mover = l;
 		this.turn += ((mover < 0 ? 0 : sideOf(mover)) - this.turn) * ease;
 		const on = (l) => (sim.grips[l] >= 0 || sim.smeared[l]) && sim.arrived(l);
-		const feet = [0, 1].filter(on);
+		const hanging = l => sim.grips[l] < 0 && !sim.smeared[l] && sim.reaching !== l && selected !== l;
+		const feet = [0, 1].filter(l => on(l) && (sim.grips[l] >= 0 || sim.loads[l] > 30));
 		const footY = feet.length ? feet.reduce((a, l) => a + sim.tips[l].y, 0) / feet.length : sim.position.y - 1;
 		// long legs keep the hips in close to the wall and a high step pushes them out; straight arms let the chest hang back
 		const compress = clamp(1 - (sim.position.y - footY) / 0.75, 0, 1);
 		const hangs = [2, 3].filter(on).filter(l => sim.grips[l] >= 0).map(l => sim.distance(l, sim.tips[l]) / (sim.body.lengths[l] * 2));
-		const straight = hangs.length ? clamp((Math.max(...hangs) - 0.75) / 0.2, 0, 1) : 0;
+		const extension = hangs.length ? Math.max(...hangs) : 0;
+		const straight = clamp((extension - 0.75) / 0.2, 0, 1);
+		let settleBack = 0;
+		if (feet.length && hangs.length === 2) {
+			const above = Math.min(sim.tips[2].y - sim.joint(2).y, sim.tips[3].y - sim.joint(3).y);
+			settleBack = smoothStep(-0.12, 0.12, above) * (1 - smoothStep(0.74, 0.95, extension));
+		}
 		const steep = Math.max(0, face.steep(sim.position.y));
-		// in first person the body hangs further off the wall, as it does in life, so looking down shows the legs past the chest
-		this.hips += (16 + 22 * compress + 10 * steep * straight + 22 * this.away - this.hips) * ease;
-		this.chestDepth += (20 + 10 * straight + 6 * steep + 18 * this.away - this.chestDepth) * ease;
-		const roots = [0, 1, 2, 3].map(l => at(sim.joint(l), l < 2 ? this.hips - 10 * this.turn * sideOf(l) : this.chestDepth - 5 * this.turn * sideOf(l)));
+		const loose = feet.length === 0 ? 1 : 0, footOff = feet.length === 1 ? 1 : 0;
+		const handOff = !on(2) || !on(3) ? 1 : 0, peel = clamp(sim.tipping / 0.35, 0, 1);
+		let highStep = 0;
+		for (const l of [0, 1]) {
+			if (hanging(l)) continue;
+			const t = clamp((sim.tips[l].y - sim.joint(l).y + 0.5) / 0.4, 0, 1);
+			highStep = Math.max(highStep, t * t * (3 - 2 * t));
+		}
+		// Keep the extra clearance used by the browser's first-person camera.
+		const handSupport = [2, 3].filter(l => on(l) && sim.grips[l] >= 0).length;
+		const stepRise = 12 * highStep * (0.35 + 0.325 * handSupport);
+		const settleDrop = 20 * settleBack * (1 - highStep);
+		const hipDepth = 31 + 22 * compress + 10 * steep * straight + 23 * loose + 30 * peel - 5 * handOff + 5 * footOff + 29 * highStep + 20 * settleBack;
+		this.hips += (hipDepth + 22 * this.away - this.hips) * ease;
+		let chestDepth = 34;
+		for (const l of [2, 3]) {
+			if (!on(l) || sim.grips[l] < 0) continue;
+			const length = sim.body.lengths[l] * 1.8, across = sim.joint(l).dist(sim.tips[l]);
+			chestDepth = Math.min(chestDepth, Math.sqrt(Math.max(0, length * length - across * across)) * 100);
+		}
+		chestDepth = clamp(chestDepth, 18, 34) + 6 * steep + 8 * loose + 25 * peel - 4 * handOff + 3 * footOff + 10 * settleBack;
+		this.chestDepth += (chestDepth + 18 * this.away - this.chestDepth) * Math.min(1, delta * 3);
+		const roots = [0, 1, 2, 3].map(l => l < 2
+			? at(sim.joint(l), this.hips - 10 * this.turn * sideOf(l)).add(frame.up.mul(stepRise - settleDrop))
+			: at(sim.joint(l), this.chestDepth - 5 * this.turn * sideOf(l)).add(frame.up.mul(0.45 * stepRise - settleDrop)));
 		const pelvis = mid(roots[0], roots[1]), chest = mid(roots[2], roots[3]);
 		const up = chest.sub(pelvis).norm();
 		const head = chest.add(up.mul(24)).sub(frame.out.mul(3));
@@ -324,7 +356,7 @@ export class Climber {
 				let over = panel.up, grip = 'free', shake = 0;
 				if (sim.grips[limb] >= 0) {
 					const hold = sim.holds()[sim.grips[limb]];
-					grip = held ? hold.kind : 'free';
+					grip = held || tip.dist(sim.spot(limb)) < 0.18 ? hold.kind : 'free';
 					// fingers point over the lip, away from the way the hold is pulled; a pinch is gripped from below its side
 					if (hold.kind !== 'pinch') over = panel.right.mul(-hold.pull.x).add(panel.up.mul(-hold.pull.y)).norm();
 				} else if (sim.smeared[limb] && held) grip = 'smear';
@@ -345,10 +377,32 @@ export class Climber {
 				const heel = contact.add(panel.out.mul(19)).sub(panel.up.mul(1.5));
 				part = { end: ankle, foot: { toe: contact, heel, up: panel.up } };
 			}
-			// elbows drop down and out, knees splay out and lead upward. a foot on the side the body is turning toward drops its knee
-			const lean = arm ? [0.6, side * 0.5, -0.6] : [0.35, side * (0.3 + 0.9 * this.away), 1];
+			// elbows drop down and out; a foot on the side the body is turning toward drops its knee
+			const lean = arm ? [0.6, side * 0.35, -0.8] : [0.35, side * (0.3 + 0.9 * this.away), 1];
 			let pole = frame.out.mul(lean[0]).add(frame.right.mul(lean[1])).add(frame.up.mul(lean[2]));
 			if (!arm && held) pole = pole.lerp(frame.up.mul(-1).add(frame.right.mul(-side * 0.7)).add(frame.out.mul(0.3)), clamp(this.turn * side, 0, 1) * 0.85);
+			const free = hanging(limb);
+			const release = held ? 0 : lerp(this.hanging[limb], free ? 1 : 0, 1 - Math.exp(-14 * Math.min(delta, 0.05)));
+			this.hanging[limb] = release;
+			if (release > 0.001) {
+				// Unloaded limbs hang from the moving joint in world gravity, even on a roof.
+				const span = Bones[limb] * 2;
+				const hang = Z.mul(-span).add(frame.right.mul(side * (arm ? 5 : 3))).add(frame.out.mul(arm ? 3 : 5)).norm();
+				const end = root.add(hang.mul(span * (arm ? 0.92 : 0.96)));
+				const hangingPole = frame.out.mul(arm ? 1 : -1).add(frame.right.mul(side * (arm ? 0.2 : 0.15)));
+				let hangingPart;
+				if (arm) {
+					const handContact = end.add(hang.mul(9)).sub(panel.out.mul(4.6));
+					hangingPart = handOn(panel, handContact, hang, side, 'free');
+				} else {
+					const along = panel.out.mul(-1).sub(Z.mul(0.65)).norm();
+					const up = Z.sub(along.mul(Z.dot(along))).norm();
+					const base = end.sub(up.mul(7));
+					hangingPart = { end, foot: { toe: base.add(along.mul(14)), heel: base.sub(along.mul(5)), up } };
+				}
+				part = blend(part, hangingPart, release);
+				pole = pole.lerp(hangingPole, release);
+			}
 			limbs.push({ ...part, pole });
 			if (limb === selected) marker = contact;
 		}

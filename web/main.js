@@ -110,13 +110,35 @@ function rebuild(index) {
 		m.material.color.setRGB(...color);
 		m.castShadow = m.receiveShadow = true;
 		group.add(m);
+		return m;
 	};
-	mesh(built.body, built.color, 0.5);
+	group.userData.resin = mesh(built.body, built.color, 0.5);
+	group.userData.faceStarts = built.faceStarts;
 	mesh(built.dark, [0.01, 0.01, 0.01], 0.8);
 	if (spots) {
 		spots[index] = world.startSpot(routes[index]);
 		tags[index].position.copy(three(spots[index].at.add(Z.mul(255))));
 	}
+}
+const activePads = new Map();
+const padTransforms = new Map();
+function pressPad(point, depth) {
+ if (point.x < -58 || point.x >= 2400 || Math.abs(point.y) >= 1500) return;
+ const key = (point.x < 0 ? 0 : 1 + Math.floor(point.x / 200)) * 30 + Math.floor((point.y + 1500) / 100);
+ if (!padTransforms.has(key)) return;
+ const pad = activePads.get(key) ?? { depth: 0, pressure: 0 };
+ pad.pressure = Math.max(pad.pressure, depth);
+ activePads.set(key, pad);
+}
+function updatePads(delta) {
+ if (delta <= 0) return;
+ for (const [key, pad] of activePads) {
+  pad.depth += (pad.pressure - pad.depth) * (1 - Math.exp(-24 * delta));
+  pad.pressure *= Math.exp(-9 * delta);
+  const settled = pad.depth < 0.01 && pad.pressure < 0.01;
+  padTransforms.get(key)(settled ? 0 : pad.depth);
+  if (settled) activePads.delete(key);
+ }
 }
 // the blockout: one instanced box batch per color
 {
@@ -133,7 +155,18 @@ function rebuild(index) {
 		material.color.setRGB(...list[0].color);
 		if (list[0].color[0] > 0.95) material.emissive.setRGB(1, 1, 1);
 		const mesh = new THREE.InstancedMesh(box, material, list.length);
-		list.forEach((b, i) => mesh.setMatrixAt(i, m.compose(three(b.center), q, new THREE.Vector3(b.size.y / 100, b.size.z / 100, b.size.x / 100))));
+		list.forEach((b, i) => {
+			const transform = depth => {
+				const center = three(b.center);
+				center.y -= depth / 200;
+				mesh.setMatrixAt(i, m.compose(center, q, new THREE.Vector3(b.size.y / 100, (b.size.z - depth) / 100, b.size.x / 100)));
+			};
+			transform(0);
+			if (b.center.z === 14 && b.size.z === 28) {
+				const key = (b.center.x < 0 ? 0 : 1 + Math.floor(b.center.x / 200)) * 30 + Math.floor((b.center.y + 1500) / 100);
+				padTransforms.set(key, depth => { transform(depth); mesh.instanceMatrix.needsUpdate = true; });
+			}
+		});
 		mesh.receiveShadow = true;
 		mesh.castShadow = list[0].shadows;
 		scene.add(mesh);
@@ -358,14 +391,14 @@ function limbKey(k) {
 
 let limb = -1;
 // where the lifted limb was, for putting it back
-let previous = -1, pressed = false, post = new Vec2();
+let previous = -1, previousPlacement = 0, pressed = false, post = new Vec2();
 let aim = new Vec2();
 const pointer = { x: 0, y: 0, inside: false, touch: false };
 let drag = null, joystick = null, stick = null, looking = null;
 const keys = new Set();
 let wide = false, elapsed = 0;
 
-function cursor(px, py) {
+function cursor(px, py, selection) {
 	// meet the problem's panels: the nearest one the ray hits within its stretch of the wall wins
 	const rect = canvas.getBoundingClientRect();
 	const ndc = new THREE.Vector2(((px - rect.left) / rect.width) * 2 - 1, -((py - rect.top) / rect.height) * 2 + 1);
@@ -385,6 +418,21 @@ function cursor(px, py) {
 		nearest = distance;
 		out = new Vec2(hit.dot(panel.right) / 100, panel.start + up);
 	});
+	if (out && selection) {
+		const { resin, faceStarts } = sets[sim.route].userData;
+		const hit = ray.intersectObject(resin)[0];
+		if (hit && hit.distance * 100 <= nearest + 0.35) {
+			let hold = faceStarts.length - 1;
+			while (hold >= 0 && hit.faceIndex < faceStarts[hold]) hold--;
+			selection.hold = hold;
+			if (hold >= 0) {
+				const spot = face.holds[hold], panel = face.at(spot.point.y);
+				const offset = unreal(hit.point).sub(face.map(spot.point));
+				const side = new Vec2(-spot.pull.y, spot.pull.x).norm();
+				selection.across = (offset.dot(panel.right) * side.x + offset.dot(panel.up) * side.y) / 10;
+			}
+		}
+	}
 	return out;
 }
 
@@ -409,30 +457,33 @@ function lift(index) {
 	// lifting a limb takes it off the wall: the other three carry the weight from this moment
 	limb = index;
 	previous = sim.grips[index];
+	previousPlacement = sim.placement[index];
 	pressed = sim.smeared[index];
 	post = sim.posts[index].copy();
 	aim = sim.tips[index].copy();
 	sim.drop(index);
 }
 
-function place() {
-	// commit whatever is under the hand or foot; a bad hold or a bare-wall press is allowed and physics decides if it sticks
-	// the hold under the pointer wins if the body can still get there by reaching; otherwise whatever the fingertips touch
-	const nearest = (point) => {
-		let found = -1, closest = 0.15;
-		sim.holds().forEach((h, i) => { const gap = h.point.dist(point); if (gap < closest) { closest = gap; found = i; } });
-		return found;
-	};
-	const wanted = nearest(sim.target), touched = nearest(aim);
-	if (wanted >= 0 && sim.grab(limb, wanted)) { limb = -1; return; }
-	if (touched < 0 || !sim.grab(limb, touched)) sim.smear(limb, aim);
-	limb = -1;
+function place(x, y) {
+	const selection = { hold: -1 };
+	const point = cursor(x, y, selection);
+	if (!point) return;
+
+	// A missed grab leaves the limb selected. Only reachable bare wall can take a smear.
+	if (selection.hold >= 0) {
+		if (sim.grab(limb, selection.hold, selection.across)) limb = -1;
+		else ui.toast(sim.hint, 'warn');
+		return;
+	}
+	const panels = routes[sim.route].panels;
+	const last = panels[panels.length - 1];
+	if (point.y >= 0 && point.y <= last.start + last.length && sim.smear(limb, point)) limb = -1;
 }
 
 function cancel() {
 	// put the limb back where it was if the body can still get it there, otherwise it hangs
 	if (limb < 0) return;
-	if (previous >= 0) sim.grab(limb, previous);
+	if (previous >= 0) sim.grab(limb, previous, previousPlacement);
 	else if (pressed) sim.smear(limb, post);
 	limb = -1;
 }
@@ -656,7 +707,7 @@ canvas.addEventListener('pointerdown', (e) => {
 		return;
 	}
 	if (e.button === 2) { cancel(); return; }
-	if (limb >= 0) { place(); return; }
+	if (limb >= 0) { place(e.clientX, e.clientY); return; }
 	const found = pick(e.clientX, e.clientY);
 	if (found >= 0) {
 		lift(found);
@@ -668,9 +719,9 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 canvas.addEventListener('pointermove', (e) => {
 	if (document.pointerLockElement === canvas) {
-		if (fpOn()) { fpLook(e.movementX * 0.0025 * ui.settings.look, e.movementY * 0.002 * ui.settings.look); return; }
-		camYaw += e.movementX * 0.0025 * ui.settings.look;
-		camPitch = clamp(camPitch - e.movementY * 0.002 * ui.settings.look, -0.85, 0.3);
+		if (fpOn()) { fpLook(e.movementX * 0.00085 * ui.settings.look, e.movementY * 0.0007 * ui.settings.look); return; }
+		camYaw += e.movementX * 0.00085 * ui.settings.look;
+		camPitch = clamp(camPitch - e.movementY * 0.0007 * ui.settings.look, -0.85, 0.3);
 		return;
 	}
 	Object.assign(pointer, { x: e.clientX, y: e.clientY, inside: true, touch: e.pointerType !== 'mouse' });
@@ -702,7 +753,7 @@ const release = (e) => {
 	}
 	if (drag) {
 		// dragged: drop it where it is. tapped: it stays lifted until the next tap places it
-		if (drag.moved && limb >= 0) place();
+		if (e.type === 'pointerup' && drag.moved && limb >= 0) place(e.clientX, e.clientY - (e.pointerType !== 'mouse' ? 50 : 0));
 		drag = null;
 	}
 	joystick = null;
@@ -810,7 +861,7 @@ function walk(delta) {
 		if (flat.len() < 5 || walker.autoTime > 6) walker.auto = null;
 		else wish = flat.norm().mul(clamp(flat.len() / 45, 0.3, 1));
 	}
-	const pace = keys.has('shift') ? 1.8 : 1;
+	const pace = keys.has('shift') ? 2.3 : 1;
 	walker.speed += (wish.len() * 165 * pace - walker.speed) * Math.min(1, delta * 8);
 	if (wish.len() > 0.05) {
 		walker.heading = wish.norm();
@@ -820,7 +871,8 @@ function walk(delta) {
 	const moved = Math.hypot(next.x - walker.at.x, next.y - walker.at.y);
 	walker.phase += moved / 130 * Math.PI * 2;
 	// a footfall every half stride
-	if (Math.floor(walker.phase / Math.PI) !== stride) { stride = Math.floor(walker.phase / Math.PI); audio.pad(); }
+	const footfall = Math.floor(walker.phase / Math.PI) !== stride;
+	if (footfall) { stride = Math.floor(walker.phase / Math.PI); audio.pad(); }
 	walker.at = new Vec3(next.x, next.y, walker.at.z + (floorAt(next.x, next.y) - walker.at.z) * Math.min(1, delta * 14));
 	walker.amp += (clamp(moved / Math.max(delta, 1e-3) / 165, 0, 1.4) - walker.amp) * Math.min(1, delta * 10);
 	let near = -1, closest = 170;
@@ -834,6 +886,11 @@ function walk(delta) {
 	const facing = spot && Math.abs(Math.atan2(Math.sin(spot.yaw - walker.yaw), Math.cos(spot.yaw - walker.yaw))) < 0.35;
 	for (let k = 0; k < 2; k++) walker.lift[k] = clamp(walker.lift[k] + (there && facing && walker.want[k] ? delta / 0.4 : -delta / 0.3), 0, 1);
 	pose = walkerPose();
+	if (footfall) {
+		const [a, b] = pose.limbs;
+		const foot = a.foot.toe.z < b.foot.toe.z ? a.foot : b.foot;
+		pressPad(foot.toe, Math.min(1.25, 0.45 + walker.speed / 480));
+	}
 	if (walker.lift[0] >= 1 && walker.lift[1] >= 1) mount();
 }
 
@@ -940,11 +997,12 @@ function update(real) {
 	else if (mode === 'climb') climb(delta);
 	else if (mode === 'edit') { walker.lift = [0, 0]; pose = walkerPose(); editor.frame(climber.clock); }
 	else if (mode === 'fall') {
-		ragdoll.step(delta);
+		ragdoll.step(delta * 1.12);
 		pose = ragdoll.pose();
-		if (ragdoll.landed && !landed) { landed = true; audio.thud(); chalk.puff(mid(pose.roots[0], pose.roots[1]), 12, ['#2a2a2e'], 60, 14); }
+		if (ragdoll.landed && !landed) { landed = true; pressPad(mid(pose.roots[0], pose.roots[1]), 2.5); audio.thud(); chalk.puff(mid(pose.roots[0], pose.roots[1]), 12, ['#2a2a2e'], 60, 14); }
 		if (ragdoll.settled() || ragdoll.time > 3.5) getUp();
 	} else if (stages) runStages(delta);
+	updatePads(delta);
 	// the setter's view is the wall alone
 	climber.group.visible = mode !== 'edit' && (!skin || fp.k > 0.5);
 	climber.draw(pose);
@@ -1096,8 +1154,8 @@ function update(real) {
 	$('keys').textContent = mode === 'edit' ? 'drag a hold · q e turn · t kind · delete removes · wheel turns · enter done'
 		: fpOn() ? 'mouse looks · r/l then a arm or l leg · arrows latch hips, space centers · x hang · j jump down · v third person · m menu'
 		: climbing ? 'v first person · wasd hips · esc put back · x hang · j jump down · r retry · wheel zoom · m menu · ` record'
-		: locked ? 'wasd walk · shift jog · mouse looks · click a start hold · e pull on · esc frees the mouse'
-		: 'wasd walk · shift jog · click to look around · wheel zoom · e pull on · [ ] next · m menu · ` record';
+		: locked ? 'wasd walk · shift sprint · mouse looks · click a start hold · e pull on · esc frees the mouse'
+		: 'wasd walk · shift sprint · click to look around · wheel zoom · e pull on · [ ] next · m menu · ` record';
 	if (mode === 'mount' && !$('tip').classList.contains('gone') && $('tip').textContent !== climbTip) $('tip').textContent = climbTip;
 	renderer.render(scene, camera);
 }

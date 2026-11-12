@@ -4,10 +4,24 @@
 
 struct FRig
 {
-	static FVector Knee(FVector Side, FVector Up, FVector Out, float Sign, float Height)
+	// which way a knee bends, given the line from its hip to its foot: out to its own side, a little more upward as the
+	// foot comes up, and leading upward only once the foot is well above the hip. keeping the knee mostly sideways is also
+	// what the hip's range allows, so more footholds can be reached. where that direction would run along the leg's own
+	// line (a foot lifted out to the side and up) it has no sideways part left and used to snap from one side of the leg to
+	// the other, flipping the knee. there it hands over to the direction square to the leg in the plane of the wall
+	static FVector Knee(FVector Side, FVector Up, FVector Out, float Sign, FVector Leg)
 	{
-		const float Lift = FMath::Clamp((Height + 20) / 40, 0.f, 1.f);
-		return Side * Sign * FMath::Lerp(1.f, 0.3f, Lift) + Up * FMath::Lerp(0.2f, 1.f, Lift) - Out * 0.25f;
+		const float Height = Leg.Z;
+		const float Lift = FMath::SmoothStep(-30.f, 30.f, Height), Above = FMath::SmoothStep(0.f, 25.f, Height);
+		Leg = Leg.GetSafeNormal();
+		const FVector Own = Side * Sign;
+		const FVector Usual = Own * FMath::Lerp(1.f, 0.8f, Lift) + Up * (FMath::Lerp(0.15f, 0.55f, Lift) + 0.6f * Above) - Out * 0.25f;
+		const FVector Across = Usual - Leg * FVector::DotProduct(Usual, Leg);
+		const float Turn = FVector::DotProduct((-Up) ^ Out, Own) < 0 ? -1.f : 1.f;
+		FVector Square = (Leg ^ Out) * Turn;
+		if (Square.SizeSquared() < 0.04f) Square = Own;
+		const float Handover = 1 - FMath::SmoothStep(0.12f, 0.35f, float(Across.Size()));
+		return (Across.GetSafeNormal() * (1 - Handover) + Square.GetSafeNormal() * Handover).GetSafeNormal();
 	}
 
 	static FQuat Orient(FQuat Rest, FVector Axis, FVector Front, FVector Direction, FVector Facing)

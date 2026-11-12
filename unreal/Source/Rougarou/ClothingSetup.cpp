@@ -178,7 +178,8 @@ static void BuildPlayerClothing(const TArray<FString>& Args)
     if(!Mobility){UE_LOG(LogTemp,Error,TEXT("Missing modular cloth paint at vertex %d"),I);return;}
     Mask.Values[I]=*Mobility*3.5f;
    }
-   else Mask.Values[I]=Shirt?FMath::Lerp(Hem*5.f,Sleeve*3.5f,Sleeve):Cuff*3.f;
+   // shorts stay close to the thighs (a stiff short leg reads as a board); the tee hem and sleeves swing
+   else Mask.Values[I]=Shirt?FMath::Lerp(Hem*2.2f,Sleeve*1.8f,Sleeve):Cuff*1.2f;
    Free+=Mask.Values[I]>0;
   }
   Cloth->ApplyParameterMasks(true);
@@ -187,7 +188,7 @@ static void BuildPlayerClothing(const TArray<FString>& Args)
   Config->BendingStiffnessWeighted=Modular?FChaosClothWeightedValue{.35f,.35f}:FChaosClothWeightedValue{.45f,.45f};Config->EdgeStiffnessWeighted={.95f,.95f};
   Config->bUseBendingElements=true;
   Config->DampingCoefficient=Modular?.15f:.22f;Config->CollisionThickness=Modular?.25f:.4f;Config->FrictionCoefficient=.35f;
-  Config->AnimDriveStiffness=Modular?FChaosClothWeightedValue{.15f,.15f}:FChaosClothWeightedValue{.25f,.25f};
+  Config->AnimDriveStiffness=Modular?FChaosClothWeightedValue{.15f,.15f}:Shirt?FChaosClothWeightedValue{.7f,.7f}:FChaosClothWeightedValue{.75f,.75f};
   if(Modular)
   {
    Config->MassMode=EClothMassMode::Density;Config->Density=.2f;Config->MinPerParticleMass=.000001f;

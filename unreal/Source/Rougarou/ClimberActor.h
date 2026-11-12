@@ -2,6 +2,7 @@
 
 #include "ClimbSim.h"
 #include "HumanRig.h"
+#include "PlayerForm.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "ClimberActor.generated.h"
@@ -23,6 +24,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Climb")
 	float Gap = 30;
 	float HipDepth = 22, ChestDepth = 22;
+	// falling off: seconds since the sim fell (-1 while climbing) and the pose it fell from
+	float FallTime = -1;
+	FHumanGoals FallFrom;
+	// how it comes off: 0 lands on its feet, 1 feet then a roll onto the back, 2 flat on its back. then it stands up where it landed
+	int32 FallKind = 0;
+	float FallAir = 0, FallLength = 2, FallDrop = 0, FallYaw = 0;
+	FVector FallSpot = FVector::ZeroVector, BodyAt = FVector::ZeroVector;
+	bool FallDone() const { return FallTime > FallLength; }
 
 	UFUNCTION(BlueprintCallable, Category = "Climb")
 	bool Grab(int32 Limb, int32 Hold) { return Sim.Grab(Limb, Hold); }
@@ -46,6 +55,7 @@ public:
 	FVector Eye = FVector::ZeroVector;
 	void SetInside(bool Inside);
 	FHumanRig HumanRig;
+	FPlayerForm Form;
 	// a second rig that tries a hold before the sim takes it (the move gate)
 	FHumanRig GateRig;
 
@@ -65,6 +75,12 @@ protected:
 
 private:
 	float Banked = 0;
+	// presentation only, layered on the sim's pose: how each limb last stood, the body's sag after a catch, and where the head is turned
+	float PrevLatch[4] = { 1, 1, 1, 1 };
+	bool PrevHeld[4] = { true, true, true, true }, FromHold[4] = {};
+	FVector2D TravelFrom[4];
+	float Sag = 0, SagSpeed = 0;
+	FVector Gaze = FVector::ZeroVector;
 	FVector2D LastPosition, LastTips[4];
 	float LastAngle = 0;
 	bool HasLast = false;

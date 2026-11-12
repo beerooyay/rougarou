@@ -180,7 +180,15 @@ static TArray<FClimbHold> Ladder(const TCHAR* Moves, float Top, int32 Seed)
 		Holds.Add({ { X, Y }, Kind, Letter == 'p' ? FVector2D(X < 0 ? 1 : -1, 0) : Pull });
 	}
 	Holds.Add({ { 0, Top }, TEXT("jug"), Pull });
-	return Holds;
+ // Intentional sidepull bias and varied spacing; keep start/finish reliable.
+ for(int32 I=2;I<Holds.Num()-1;++I)
+ {
+  FClimbHold& H=Holds[I];
+  const float Angle=FMath::DegreesToRadians(float((Seed*13+I*19)%49-24));
+  if(H.Kind!=TEXT("pinch")) H.Pull=FVector2D(FMath::Sin(Angle),-FMath::Cos(Angle));
+  if(I>=7) H.Point.X+=.09f*FMath::Sin(float(Seed+I)*1.7f);
+ }
+ return Holds;
 }
 
 static FTransform RouteHoldFrame(const FClimbRoute& Route, const FClimbHold& Hold)
@@ -190,12 +198,18 @@ static FTransform RouteHoldFrame(const FClimbRoute& Route, const FClimbHold& Hol
 	return HoldFrame(Route.Map(Hold.Point), Panel.Out, Up);
 }
 
+// Stable sculpt sizes shared by rendering and contact sampling.
+static float RouteHoldSize(const FString& Kind,int32 Route,int32 Hold)
+{
+ return HoldSize(Kind)*(.82f+float((Route*7+Hold*11)%9)*.055f);
+}
+
 static void SampleRouteHold(FClimbRoute& Route, int32 RouteIndex, int32 HoldIndex)
 {
 	FClimbHold& Hold = Route.Holds[HoldIndex];
 	const int32 Template = PickTemplate(Hold.Kind, RouteIndex * 31 + HoldIndex);
 	FMeshSink Resin, Mount;
-	BuildHold(Template, HoldSize(Hold.Kind), FTransform::Identity, RouteIndex * 977 + HoldIndex, Resin, Mount);
+	BuildHold(Template, RouteHoldSize(Hold.Kind,RouteIndex,HoldIndex), FTransform::Identity, RouteIndex * 977 + HoldIndex, Resin, Mount);
 
 	FBox Bounds(ForceInit);
 	for (const FVector& Point : Resin.Vertices) Bounds += Point;
@@ -224,10 +238,32 @@ static void SampleRouteHold(FClimbRoute& Route, int32 RouteIndex, int32 HoldInde
 		}
 		return Nearest;
 	};
+	// the resin as a height map, ray cast straight at the wall on a grid over its footprint
+	{
+		TSharedRef<FHoldSurface> Map = MakeShared<FHoldSurface>();
+		Map->Frame = Frame; Map->Cells = 26;
+		Map->Min = FVector2D(Bounds.Min.X, Bounds.Min.Y); Map->Max = FVector2D(Bounds.Max.X, Bounds.Max.Y);
+		Map->Heights.SetNumZeroed(Map->Cells * Map->Cells);
+		for (int32 J = 0; J < Map->Cells; J++) for (int32 I = 0; I < Map->Cells; I++)
+		{
+			const float X = FMath::Lerp(Map->Min.X, Map->Max.X, I / float(Map->Cells - 1)), Y = FMath::Lerp(Map->Min.Y, Map->Max.Y, J / float(Map->Cells - 1));
+			const FVector Top(X, Y, Bounds.Max.Z + 1), Bottom(X, Y, Bounds.Min.Z - 1);
+			float Height = 0;
+			for (int32 T = 0; T < Resin.Triangles.Num(); T += 3)
+			{
+				FVector Point, Normal;
+				if (FMath::SegmentTriangleIntersection(Top, Bottom, Resin.Vertices[Resin.Triangles[T]], Resin.Vertices[Resin.Triangles[T + 1]], Resin.Vertices[Resin.Triangles[T + 2]], Point, Normal))
+					Height = FMath::Max(Height, float(Point.Z));
+			}
+			Map->Heights[J * Map->Cells + I] = Height;
+		}
+		Hold.Surface = Map;
+	}
 	// Shoes rest on the upper face. Knuckles reach the lip from the front.
 	const FVector FootTop(Bounds.Max.X + 1, 0, Bounds.Max.Z * .60);
 	Hold.ShoeContact = Surface(FootTop, FVector(Bounds.Min.X - 1, 0, FootTop.Z));
-	const FVector HandFront(Bounds.Max.X * .60, 0, Bounds.Max.Z + 1);
+	const float KnuckleUp=Hold.Kind==TEXT("crimp") ? .34f : .60f;
+	const FVector HandFront(Bounds.Max.X * KnuckleUp, 0, Bounds.Max.Z + 1);
 	Hold.KnuckleContact = Surface(HandFront, FVector(HandFront.X, 0, -1));
 }
 
@@ -245,6 +281,17 @@ static TArray<FClimbRoute> BuildProblems()
 		Route.Name = Section.Problem;
 		Route.Panels = Stack(Corners, Section.Along, Section.Into);
 		Route.Holds = Ladder(Section.Moves, Section.Top, Seed++);
+		if(Route.Name==TEXT("slab dance"))
+		{
+			Route.Holds[4].Point.X=-.13f;
+			Route.Holds[5].Point.Y=1.26f;
+		}
+		else if(Route.Name==TEXT("the roof"))
+		{
+			Route.Holds[4].Kind=TEXT("jug");
+			Route.Holds[5].Point.X=-.48f;
+			Route.Holds[6].Point.X=.48f;
+		}
 	}
 	// the arch: up the outer leg onto its top, and up the inner leg into the cave
 	const float Middle = ArchStart + ArchLength / 2;
@@ -285,6 +332,7 @@ FLinearColor AGymActor::Tape(int32 Index)
 
 AGymActor::AGymActor()
 {
+	PrimaryActorTick.bCanEverTick=true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Room"));
 	Panels = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("Panels"));
 	Panels->SetupAttachment(RootComponent);
@@ -452,21 +500,62 @@ void AGymActor::Set(const FClimbRoute& Problem, int32 Index)
 	for (int32 Hold = 0; Hold < Problem.Holds.Num(); Hold++)
 	{
 		const FClimbHold& Spot = Problem.Holds[Hold];
-		BuildHold(PickTemplate(Spot.Kind, Index * 31 + Hold), HoldSize(Spot.Kind), RouteHoldFrame(Problem, Spot), Index * 977 + Hold, Paint[Color], Shadow);
+		BuildHold(PickTemplate(Spot.Kind, Index * 31 + Hold), RouteHoldSize(Spot.Kind,Index,Hold), RouteHoldFrame(Problem, Spot), Index * 977 + Hold, Paint[Color], Shadow);
 	}
 }
 
+void AGymActor::PressPad(FVector Point,float Depth,bool Impact)
+{
+ if(Depth<=.01f || Point.X < -58 || Point.X >= 2400 || FMath::Abs(Point.Y)>=1500) return;
+ const int32 Column=Point.X<0?0:1+FMath::FloorToInt(Point.X/200);
+ const int32 Row=FMath::FloorToInt((Point.Y+1500)/100);
+ auto& Pad=LoadedPads.FindOrAdd(Column*30+Row);
+ if(Impact) Pad.Impact=FMath::Max(Pad.Impact,Depth);
+ else Pad.Load=FMath::Max(Pad.Load,Depth);
+}
+void AGymActor::Tick(float Delta)
+{
+ Super::Tick(Delta);
+ bool Changed=false;
+ for(auto It=LoadedPads.CreateIterator();It;++It)
+ {
+  auto& Pad=It.Value();
+  const float Target=FMath::Max(Pad.Load,Pad.Impact);
+  Pad.Depth=FMath::Lerp(Pad.Depth,Target,1-FMath::Exp(-(Target>Pad.Depth?36.f:11.f)*Delta));
+  Pad.Impact*=FMath::Exp(-8.f*Delta);
+  Pad.Load=0;
+  const bool Settled=Pad.Depth<.01f && Pad.Impact<.01f && Target<.01f;
+  const float Depth=Settled?0.f:Pad.Depth;
+  FTransform Base=PadBases[It.Key()],Cover=PadCovers[It.Key()];
+  Base.AddToTranslation(FVector(0,0,-Depth*.5));
+  Base.SetScale3D(Base.GetScale3D()-FVector(0,0,Depth*.01));
+  Cover.AddToTranslation(FVector(0,0,-Depth));
+  PadBaseMesh->UpdateInstanceTransform(It.Key(),Base,false,false);
+  PadCoverMesh->UpdateInstanceTransform(It.Key(),Cover,false,false);
+  Changed=true;
+  if(Settled) It.RemoveCurrent();
+ }
+ if(Changed){PadBaseMesh->MarkRenderStateDirty();PadCoverMesh->MarkRenderStateDirty();}
+}
 void AGymActor::Shell()
 {
-	// black mat tiles with seams, over a concrete slab
-	const FLinearColor Mat(0.03f, 0.03f, 0.035f);
-	for (float X = 100; X < 2450; X += 200)
-		for (float Y = -1450; Y < 1500; Y += 100)
-			Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->AddInstance(FTransform(FRotator::ZeroRotator, FVector(X, Y, 14), FVector(1.96f, 0.97f, 0.28f)));
-	// a row of narrow pads tight against the back wall, so nobody lands on bare concrete
-	for (float Y = -1450; Y < 1500; Y += 100)
-		Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->AddInstance(FTransform(FRotator::ZeroRotator, FVector(-29, Y, 14), FVector(0.58f, 0.97f, 0.28f)));
-	Batch(TEXT("mat"), TEXT("/Engine/BasicShapes/Cube.Cube"), Mat)->SetMaterial(0, Finish(TEXT("/Game/Gym/M_Rubber.M_Rubber"), Mat, 0, 0.8f));
+	// Separate vinyl tops from the wrapped sides so the seams catch light.
+	const FLinearColor Side(.025f,.025f,.031f), Top(.046f,.046f,.054f);
+	PadBaseMesh=Batch(TEXT("mat base"),TEXT("/Engine/BasicShapes/Cube.Cube"),Side);
+	PadCoverMesh=Batch(TEXT("mat cover"),TEXT("/Engine/BasicShapes/Cube.Cube"),Top);
+	PadBaseMesh->SetMaterial(0,Finish(TEXT("/Game/Gym/M_Rubber.M_Rubber"),Side,0,.83f));
+	PadCoverMesh->SetMaterial(0,Finish(TEXT("/Game/Gym/M_Rubber.M_Rubber"),Top,0,.78f));
+	for(int32 Column=0;Column<13;++Column)
+		for(int32 Row=0;Row<30;++Row)
+		{
+			const float X=Column==0?-29.f:100.f+200.f*(Column-1);
+			const float Y=-1450.f+100.f*Row;
+			const float Width=Column==0?.58f:1.96f;
+			PadBases.Emplace(FRotator::ZeroRotator,FVector(X,Y,13.5),FVector(Width,.978,.27));
+			PadCovers.Emplace(FRotator::ZeroRotator,FVector(X,Y,27.5),FVector(Width-.012,.966,.01));
+			PadBaseMesh->AddInstance(PadBases.Last());
+			PadCoverMesh->AddInstance(PadCovers.Last());
+		}
 	Block(FVector(1150, 0, -5), FVector(2950, 3400, 10), FLinearColor(0.25f, 0.25f, 0.25f), false);
 	// the steel building: shell walls, insulated ceiling, beams, purlins. none of it casts shadow, or the roof would black out the key light
 	const FLinearColor Siding(0.6f, 0.6f, 0.58f);

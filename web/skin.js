@@ -116,7 +116,9 @@ export class Skin {
 	// drive a bone so its axis points from At toward Direction, keeping Facing in the y-plane
 	aim(b, next, at, direction, facing, front) {
 		if (direction.lengthSq() < 1e-8) return;
-		const current = this.worldOf(next).p.clone().sub(this.worldOf(b).p).normalize();
+		const here = this.worldOf(b).p;
+		const current = next ? this.worldOf(next).p.clone().sub(here).normalize()
+			: here.clone().sub(this.worldOf(b.parent).p).normalize();
 		const target = direction.clone().normalize();
 		const rest = this.restWorld.get(b);
 		let q;
@@ -228,10 +230,10 @@ export class Skin {
 				for (let f = 0; f < 4; f++) {
 					for (let j = 1; j <= 3; j++) {
 						const index = this.bone[`${side}Hand${Fingers[f]}${j}`], next = this.bone[`${side}Hand${Fingers[f]}${j + 1}`];
-						if (!index || !next) continue;
+						if (!index || (!next && j < 3)) continue;
 						let angle = j * 8;
 						if (grip === 'jug') angle = j * 30;
-						else if (grip === 'crimp') angle = j === 1 ? 25 : j === 2 ? 95 : 80;
+						else if (grip === 'crimp') angle = j === 1 ? -6 : j === 2 ? 80 : 55;
 						else if (grip === 'pinch') angle = j * 22;
 						else if (grip === 'smear') angle = 0;
 						else if (grip === 'pocket') angle = j * (f === 1 || f === 2 ? 18 : 35);

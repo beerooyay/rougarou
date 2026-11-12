@@ -105,9 +105,28 @@ FVector2D FClimbSim::Hang(int32 Limb) const
 	return Joint(Limb) + FVector2D(Side * 0.1f, Limb >= 2 ? -0.35f : -0.6f);
 }
 
+float FClimbSim::GripWidth(const FClimbHold& Hold)
+{
+ return Hold.Surface.IsValid()?FMath::Max(2.f,float(Hold.Surface->Max.Y-Hold.Surface->Min.Y)*.5f):10.f;
+}
+
+FVector2D FClimbSim::GripSide(const FClimbHold& Hold)
+{
+ return FVector2D(-Hold.Pull.Y,Hold.Pull.X).GetSafeNormal();
+}
+
+FVector2D FClimbSim::GripPoint(const FClimbHold& Hold,float Across)
+{
+ return Hold.Point+GripSide(Hold)*(GripWidth(Hold)*.006f*FMath::Clamp(Across,-1.f,1.f));
+}
+
 FVector2D FClimbSim::Spot(int32 Limb) const
 {
-	if (Grips[Limb] >= 0) return Holds()[Grips[Limb]].Point;
+	if (Grips[Limb] >= 0)
+ {
+  const auto& Hold=Holds()[Grips[Limb]];
+  return GripPoint(Hold,Placement[Limb]);
+ }
 	if (Smeared[Limb]) return Posts[Limb];
 	if (Limb == Reaching) return Clamp(Limb, Target);
 	return Hang(Limb);
@@ -116,7 +135,7 @@ FVector2D FClimbSim::Spot(int32 Limb) const
 void FClimbSim::Restart()
 {
 	// Settle below the hands instead of starting in a sustained pull-up.
-	Position = (Holds()[0].Point + Holds()[1].Point + Holds()[2].Point + Holds()[3].Point) / 4 + FVector2D(0, 0.175f);
+	Position = (Holds()[0].Point + Holds()[1].Point + Holds()[2].Point + Holds()[3].Point) / 4 + FVector2D(0, 0.14f);
 	if (Spec.Routes[Route].At(Position.Y).Up.Z > 0.85f && Spec.Routes[Route].Steep(Position.Y) <= 0.05f) Position.Y -= 0.08f;
 	Velocity = FVector2D::ZeroVector;
 	Angle = 0;
@@ -129,6 +148,7 @@ void FClimbSim::Restart()
 		Slips[Limb] = 0;
 		Pump[Limb] = 0;
 		Latch[Limb] = 1;
+		Placement[Limb] = 0;
 		Strain[Limb] = 0;
 		Tips[Limb] = Holds()[Limb].Point;
 	}
@@ -139,28 +159,32 @@ void FClimbSim::Restart()
 	for (float& Load : Loads) Load = 0;
 	Squeeze = 0;
 	Tipping = 0;
+	Overreach = 0;
 	Fallen = false;
 }
 
-FString FClimbSim::Check(int32 Limb, int32 Hold) const
+FString FClimbSim::Check(int32 Limb, int32 Hold, float Across) const
 {
 	if (!Holds().IsValidIndex(Hold)) return TEXT("no hold there");
-	if (Distance(Limb, Holds()[Hold].Point) > Range(Limb))
+	const FVector2D Contact=GripPoint(Holds()[Hold],Across);
+	if (Distance(Limb,Contact) > Range(Limb)+.025f)
 		return FString::Printf(TEXT("%s cannot reach: shift your hips or move a foot"), Names[Limb]);
-	if (!Open(Limb, Holds()[Hold].Point))
+	if (!Open(Limb,Contact))
 		return FString::Printf(TEXT("%s: the hip will not open that far"), Names[Limb]);
 	if (Gate)
 	{
-		const FString Why = Gate(*this, Limb, Hold);
+		const FString Why = Gate(*this, Limb, Hold, Across);
 		if (!Why.IsEmpty()) return FString::Printf(TEXT("%s: %s"), Names[Limb], *Why);
 	}
 	return FString();
 }
 
-bool FClimbSim::Grab(int32 Limb, int32 Hold)
+bool FClimbSim::Grab(int32 Limb, int32 Hold, float Across)
 {
-	const FString Why = Check(Limb, Hold);
-	if (!Why.IsEmpty()) { Hint = Why; return false; }
+	Across=FMath::Clamp(Across,-1.f,1.f);
+	const FString Why=Check(Limb,Hold,Across);
+	if(!Why.IsEmpty()){Hint=Why;return false;}
+	Placement[Limb]=Across;
 	Grips[Limb] = Hold;
 	Smeared[Limb] = false;
 	Slips[Limb] = 0;
@@ -291,17 +315,27 @@ void FClimbSim::Step(float Delta)
 	TArray<FContact, TInlineAllocator<4>> Contacts;
 	FVector2D Stance = FVector2D::ZeroVector;
 	float Weight = 0;
+	int32 HangingHand = INDEX_NONE;
+	int32 SupportingHands = 0;
+	bool SupportingFoot = false;
 	for (int32 Limb = 0; Limb < 4; Limb++)
 	{
 		const bool Press = Grips[Limb] < 0 && Smeared[Limb];
 		if ((Grips[Limb] < 0 && !Press) || !Arrived(Limb)) { Strain[Limb] = 0; continue; }
 		const FClimbHold* Hold = Press ? nullptr : &Holds()[Grips[Limb]];
-		const FVector2D Point = Press ? Posts[Limb] : Hold->Point;
+		const FVector2D Point = Spot(Limb);
 		// legs are far stronger than arms; pump saps the arms. a press can be loaded past what friction holds: it then skates off, gradually
 		float Strength = (Limb < 2 ? 1100 : 700 * (1 - 0.4f * Pump[Limb])) * (0.5f + 0.5f * Latch[Limb]);
 		if (Press) Strength = FMath::Min(Strength, Friction(Limb) * 1.3f);
 		Contacts.Add({ Limb, Point, Hold, Press, Strength, FVector2D::ZeroVector });
 		// the stance the contacts hold the hips in; feet count double because the body stands on them, and a palm only steadies
+		if (Strength <= 0) continue;
+		if (Limb < 2) SupportingFoot = true;
+		else if (!Press)
+		{
+			HangingHand = Contacts.Num() - 1;
+			SupportingHands++;
+		}
 		const float Vote = Limb < 2 ? 2 : Press ? 0 : 1;
 		if (Vote == 0) continue;
 		Stance += (Point - Turn(Rest(Limb))) * Vote;
@@ -346,13 +380,22 @@ void FClimbSim::Step(float Delta)
 		// and whatever one limb cannot deliver passes to the others. only when they all run out does the body sag.
 		// the hips ease toward the stance at a human pace instead of snapping, which keeps the load on the fingers smooth
 		FVector2D Wanted = Stance / Weight + Reach;
+		if (SupportingHands == 1 && !SupportingFoot)
+		{
+			// With the feet cut, settle under the loaded shoulder at nearly full arm length.
+			const FContact& Hand = Contacts[HangingHand];
+			const int32 Limb = Hand.Limb;
+			Wanted = Hand.Point - Turn(Body.Seats[Limb])
+				+ Face.Down(Position.Y).GetSafeNormal() * (1.8f * Body.Lengths[Limb]) + Reach;
+		}
 		// Keep the opening stance relaxed after settling, rather than immediately
 		// standing back up into the old bent-arm position. Goal easing also handles
 		// leaving this stance when the first limb moves.
 		if (Face.At(Position.Y).Up.Z > 0.85f && Face.Steep(Position.Y) <= 0.05f && Mover < 0 && Grips[0] == 0 && Grips[1] == 1 && Grips[2] == 2 && Grips[3] == 3)
 			Wanted.Y -= 0.10f;
 		Goal += ((Wanted - Goal) * FMath::Min(1.f, Delta * 6)).GetClampedToMaxSize(1.2f * Delta);
-		FVector2D Needed = (Goal - Position) * 2400 - Velocity * 520 - Weight2D;
+		// close to critical damping for the body's mass: the hips arrive at a new stance and stop, without rocking past it
+		FVector2D Needed = (Goal - Position) * 2400 - Velocity * 760 - Weight2D;
 		for (int32 Pass = 0; Pass < 4 && Needed.Size() > 1; Pass++)
 		{
 			float Open = 0;
@@ -392,7 +435,9 @@ void FClimbSim::Step(float Delta)
 		// a fresh catch has not settled yet: the fingers are still finding the hold
 		const float Limit = Contact.Press ? Friction(Limb) * (0.45f + 0.55f * Latch[Limb])
 			: Grip * (0.5f + 0.5f * Matchup) * (Limb < 2 ? 1.45f : 1) * (1 - 0.5f * Pump[Limb]) * Peel * (0.45f + 0.55f * Latch[Limb]);
-		const float Effort = Load.Size() / FMath::Max(Limit, 1.f);
+		// Less resin under the fingers or rubber near either edge means less purchase.
+		const float Purchase=Contact.Press?1.f:1.f-(Limb<2?.22f:.30f)*FMath::Square(Placement[Limb]);
+		const float Effort = Load.Size() / FMath::Max(Limit*Purchase, 1.f);
 		Strain[Limb] = Effort;
 		Loads[Limb] = Load.Size();
 		if (Limb >= 2 && !Contact.Press)
@@ -429,6 +474,11 @@ void FClimbSim::Step(float Delta)
 	if (Position.Y < 0.62f) Fall(TEXT("fell: try moving a foot before reaching"));
 	else if (Tipping > 0.35f) Fall(TEXT("tipped off: keep a hand on before moving the other"));
 	else if (FMath::Abs(Angle) > 1.5f) Fall(TEXT("barn-doored off: flag a leg or get a foot on that side"));
+	// Build fatigue only when the player keeps aiming past the usable range.
+	const bool Straining = Reaching >= 0 && Reaching < 4 && Grips[Reaching] < 0 && !Smeared[Reaching]
+		&& FVector2D::Distance(Target, Clamp(Reaching, Target)) > .18f;
+	Overreach = Straining ? Overreach + Delta : FMath::Max(0.f, Overreach - 2 * Delta);
+	if (!Fallen && Overreach > 1.25f) Fall(TEXT("lost grip reaching: move a supporting limb first"));
 	const int32 Top = Holds().Num() - 1;
 	// a send is both hands matched on the finish hold, held under control
 	Topped = Grips[2] == Top && Grips[3] == Top && Arrived(2) && Arrived(3) ? Topped + Delta : 0;
@@ -445,9 +495,11 @@ FClimbSim::FState FClimbSim::Save() const
 	FMemory::Memcpy(State.Pump, Pump, sizeof(Pump));
 	FMemory::Memcpy(State.Tips, Tips, sizeof(Tips));
 	FMemory::Memcpy(State.Latch, Latch, sizeof(Latch));
+	FMemory::Memcpy(State.Placement, Placement, sizeof(Placement));
 	State.Goal = Goal;
 	State.Topped = Topped;
 	State.Tipping = Tipping;
+	State.Overreach = Overreach;
 	State.Won = Won;
 	State.Fallen = Fallen;
 	return State;
@@ -467,9 +519,11 @@ void FClimbSim::Load(const FState& State)
 	FMemory::Memcpy(Pump, State.Pump, sizeof(Pump));
 	FMemory::Memcpy(Tips, State.Tips, sizeof(Tips));
 	FMemory::Memcpy(Latch, State.Latch, sizeof(Latch));
+	FMemory::Memcpy(Placement, State.Placement, sizeof(Placement));
 	Goal = State.Goal;
 	Topped = State.Topped;
 	Tipping = State.Tipping;
+	Overreach = State.Overreach;
 	Won = State.Won;
 	Fallen = State.Fallen;
 }

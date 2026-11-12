@@ -90,6 +90,11 @@ function ladder(moves, top, seed) {
 		holds.push(H(x, y, kind, letter === 'p' ? new Vec2(x < 0 ? 1 : -1, 0) : pull));
 	}
 	holds.push(H(0, top, 'jug'));
+ for(let i=2;i<holds.length-1;i++) {
+  const h=holds[i], angle=((seed*13+i*19)%49-24)*Math.PI/180;
+  if(h.kind!=='pinch') h.pull=new Vec2(Math.sin(angle),-Math.cos(angle));
+  if(i>=7) h.point.x+=.09*Math.sin((seed+i)*1.7);
+ }
 	return holds;
 }
 
@@ -102,6 +107,14 @@ export function problems() {
 		const route = new Route(s.problem);
 		route.panels = stack(corners, s.along, s.into);
 		route.holds = ladder(s.moves, s.top, seed++);
+		if (s.problem === 'slab dance') {
+			route.holds[4].point.x = -.13;
+			route.holds[5].point.y = 1.26;
+		} else if (s.problem === 'the roof') {
+			route.holds[4].kind = 'jug';
+			route.holds[5].point.x = -.48;
+			route.holds[6].point.x = .48;
+		}
 		route.grade = s.grade;
 		out.push(route);
 	}
@@ -151,14 +164,14 @@ export class Sink {
 }
 
 const Templates = [
-	{ name: 'bucket', kind: 'jug', scale: V(0.8, 1, 0.7), noise: 0.08, shape: 'lip' },
+	{ name: 'bucket', kind: 'jug', scale: V(.95, 1.15, .9), noise: .035, shape: 'scoop' },
 	{ name: 'horn', kind: 'jug', scale: V(0.9, 0.6, 0.6), noise: 0.06, shape: 'horn' },
-	{ name: 'star', kind: 'jug', scale: V(1.1, 1.1, 0.55), noise: 0.05, shape: 'star' },
+	{ name: 'star', kind: 'jug', scale: V(.85, 1.3, .75), noise: .035, shape: 'scoop' },
 	{ name: 'handle', kind: 'jug', scale: V(0.6, 1.2, 0.6), noise: 0.07, shape: 'lip' },
-	{ name: 'edge', kind: 'crimp', scale: V(0.28, 1.2, 0.2), noise: 0.04, shape: 'blob' },
+	{ name: 'edge', kind: 'crimp', scale: V(0.34, 1.2, 0.26), noise: 0.035, shape: 'shelf' },
 	{ name: 'smile', kind: 'crimp', scale: V(0.3, 1, 0.22), noise: 0.04, shape: 'smile' },
 	{ name: 'chip', kind: 'crimp', scale: V(0.4, 0.5, 0.16), noise: 0.08, shape: 'blob' },
-	{ name: 'rail', kind: 'crimp', scale: V(0.22, 1.9, 0.22), noise: 0.03, shape: 'blob' },
+	{ name: 'rail', kind: 'crimp', scale: V(0.28, 1.9, 0.25), noise: 0.03, shape: 'shelf' },
 	{ name: 'dome', kind: 'sloper', scale: V(1.25, 1.25, 0.42), noise: 0.05, shape: 'blob' },
 	{ name: 'pebble', kind: 'sloper', scale: V(0.85, 1.5, 0.38), noise: 0.1, shape: 'blob' },
 	{ name: 'fin', kind: 'pinch', scale: V(1.1, 0.3, 0.55), noise: 0.05, shape: 'blob' },
@@ -167,6 +180,10 @@ const Templates = [
 	{ name: 'knob', kind: 'pinch', scale: V(0.5, 0.5, 0.45), noise: 0.08, shape: 'blob' },
 	{ name: 'pyramid', kind: 'volume', scale: V(1, 1, 0.6), noise: 0, shape: 'pyramid' },
 	{ name: 'wedge', kind: 'volume', scale: V(1.3, 0.9, 0.5), noise: 0, shape: 'wedge' },
+	{ name: 'scallop', kind: 'jug', scale: V(.66, 1.25, .72), noise: .065, shape: 'smile' },
+	{ name: 'stepped edge', kind: 'crimp', scale: V(.42, .77, .31), noise: .055, shape: 'shelf' },
+	{ name: 'wave', kind: 'sloper', scale: V(.84, 1.53, .42), noise: .075, shape: 'smile' },
+	{ name: 'asymmetric rib', kind: 'pinch', scale: V(1.4, .48, .53), noise: .07, shape: 'smile' },
 ];
 
 function pickTemplate(kind, seed) {
@@ -253,8 +270,13 @@ function buildHold(index, size, where, seed, body, dark, fine = false) {
 		let l = V(p.x, p.y, Math.max(p.z, 0));
 		const theta = Math.atan2(l.y, l.x);
 		switch (hold.shape) {
+			case 'scoop': l.z *= 1-.52*Math.exp(-8*((l.x-.15)**2+l.y*l.y)); l.z += .38*Math.max(0,l.x)*p.z; l.x += .16*l.y*p.z; break;
 			case 'lip': l.z += 0.45 * Math.max(l.x, 0) * l.z; l.x -= 0.2 * l.z * l.z; break;
 			case 'horn': l.z *= 1 + 0.6 * Math.max(l.x, 0); l.x *= 1 + 0.25 * Math.max(l.x, 0); break;
+			case 'shelf':
+				l.x = Math.sign(l.x) * Math.abs(l.x) ** (l.x > 0 ? .48 : .85);
+				l.z *= 1 + .28 * Math.max(0, l.x);
+				break;
 			case 'smile': l.x += 0.35 * l.y * l.y; break;
 			case 'star': { const k = 1 + 0.3 * Math.cos(3 * theta); l = V(l.x * k, l.y * k, l.z); break; }
 			case 'pocket': l.z *= 1 - 0.5 * Math.exp(-(l.x * l.x + l.y * l.y) * 6); break;
@@ -389,9 +411,9 @@ export function buildGym(routes) {
 	// ---- shell: mats, slab, the steel building, led strips
 	const steel = [0.04, 0.04, 0.045];
 	for (let x = 100; x < 2450; x += 200)
-		for (let y = -1450; y < 1500; y += 100) block(V(x, y, 14), V(196, 97, 28), [0.03, 0.03, 0.035]);
+		for (let y = -1450; y < 1500; y += 100) block(V(x, y, 14), V(196, 97, 28), [0.046, 0.046, 0.054]);
 	// a row of narrow pads tight against the back wall, so nobody lands on bare concrete
-	for (let y = -1450; y < 1500; y += 100) block(V(-29, y, 14), V(58, 97, 28), [0.03, 0.03, 0.035]);
+	for (let y = -1450; y < 1500; y += 100) block(V(-29, y, 14), V(58, 97, 28), [0.046, 0.046, 0.054]);
 	block(V(1150, 0, -5), V(2950, 3400, 10), [0.25, 0.25, 0.25], false);
 	const siding = [0.6, 0.6, 0.58];
 	block(V(-300, 0, 450), V(20, 3500, 900), siding, false);
@@ -493,13 +515,15 @@ export function buildGym(routes) {
 // so the route editor can rebuild a problem after moving its holds. a hold's Seed keeps its shape when holds are added or removed
 export function routeHolds(problem, index) {
 	const body = new Sink(), dark = new Sink();
+	const faceStarts = [];
 	problem.holds.forEach((spot, h) => {
+		faceStarts.push(body.positions.length / 9);
 		const face = problem.at(spot.point.y);
 		const up = face.right.mul(-spot.pull.x).add(face.up.mul(-spot.pull.y));
 		const seed = spot.seed ?? h;
-		buildHold(pickTemplate(spot.kind, index * 31 + seed), holdSize(spot.kind), holdFrame(problem.map(spot.point), face.out, up), index * 977 + seed, body, dark, true);
+		buildHold(pickTemplate(spot.kind, index * 31 + seed), holdSize(spot.kind)*(.82+((index*7+seed*11)%9)*.055), holdFrame(problem.map(spot.point), face.out, up), index * 977 + seed, body, dark, true);
 	});
-	return { body, dark, color: tape(index) };
+	return { body, dark, color: tape(index), faceStarts };
 }
 
 // unreal's RotateAngleAxis: Vector turned Degrees about Axis

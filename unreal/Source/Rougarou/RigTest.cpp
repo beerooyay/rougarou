@@ -26,7 +26,7 @@ bool FRigTest::RunTest(const FString& Parameters)
 	{
 		const FVector Hip(22, Side * 10, 100);
 		const FVector Foot(17, Side * 18, 40);
-		const FVector Hint = FRig::Knee(FVector::RightVector, FVector::UpVector, FVector::ForwardVector, Side, Foot.Z - Hip.Z);
+		const FVector Hint = FRig::Knee(FVector::RightVector, FVector::UpVector, FVector::ForwardVector, Side, Foot - Hip);
 		FRig::Solve(Hip, Foot, Hip + Hint, 46, 44, Bend, End);
 		TestTrue(TEXT("knees stay outside the wall"), Bend.X > 5);
 		TestTrue(TEXT("knees open to their own side"), (Bend.Y - Hip.Y) * Side > 0);
@@ -48,7 +48,7 @@ bool FRigTest::RunTest(const FString& Parameters)
 		}
 	}
 	const FVector Hip(22, 0, 100), Foot(17, -25, 120);
-	const FVector Hint = FRig::Knee(FVector::RightVector, FVector::UpVector, FVector::ForwardVector, -1, Foot.Z - Hip.Z);
+	const FVector Hint = FRig::Knee(FVector::RightVector, FVector::UpVector, FVector::ForwardVector, -1, Foot - Hip);
 	FRig::Solve(Hip, Foot, Hip + Hint, 46, 44, Bend, End);
 	const float Upper = (Bend - Hip).Size(), Lower = (End - Bend).Size();
 	FRig::Limit(Hip, End, FPlane(FVector::ZeroVector, FVector::ForwardVector), 10, Bend);

@@ -25,6 +25,19 @@ bool FHumanShakeTest::RunTest(const FString& Parameters)
    for(int32 F=0;F<240;F++)
    {
     Sim.Lean=FVector2D(FMath::Sin(F*.05f),FMath::Sin(F*.031f)*.5f)*.6f;
+    // halfway through, lift the right hand and sweep it up toward the next hold, lining up on it near the end, the way a player aims
+    if(F==120){Sim.Drop(2);Sim.Reaching=2;}
+    if(F>=120)
+    {
+     int32 Next=-1;float Best=MAX_flt;
+     for(int32 H=0;H<Sim.Holds().Num();H++){const float Y=Sim.Holds()[H].Point.Y-Sim.Tips[3].Y;if(Y>.1f&&Y<Best){Best=Y;Next=H;}}
+     if(Next>=0)
+     {
+      const float T=FMath::Clamp((F-120)/90.f,0.f,1.f);
+      Sim.Target=FMath::Lerp(Sim.Joint(2),Sim.Holds()[Next].Point,T);Sim.Tips[2]=Sim.Clamp(2,Sim.Target);
+      Sim.Aimed=T>.7f?Next:-1;
+     }
+    }
     Sim.Step(1.f/60);
     const FHumanPose Pose=Rig.Solve(FHumanGoals::FromSim(Sim),1.f/60);
     TArray<FQuat> C;for(const FTransform& T:Pose.Local)C.Add(T.GetRotation());

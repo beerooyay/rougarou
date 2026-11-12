@@ -38,20 +38,20 @@ struct FHoldTemplate
 	FVector Scale;
 	float Noise;
 	// shape tricks applied to the unit hemisphere
-	enum EShape : uint8 { Blob, Lip, Horn, Smile, Star, Pocket, Pyramid, Wedge } Shape;
+	enum EShape : uint8 { Blob, Lip, Scoop, Horn, Smile, Shelf, Star, Pocket, Pyramid, Wedge } Shape;
 };
 
 inline const TArray<FHoldTemplate>& HoldTemplates()
 {
 	static const TArray<FHoldTemplate> Library = {
-		{ TEXT("bucket"), TEXT("jug"), FVector(0.8f, 1.f, 0.7f), 0.08f, FHoldTemplate::Lip },
+		{ TEXT("bucket"), TEXT("jug"), FVector(0.95f, 1.15f, 0.9f), 0.035f, FHoldTemplate::Scoop },
 		{ TEXT("horn"), TEXT("jug"), FVector(0.9f, 0.6f, 0.6f), 0.06f, FHoldTemplate::Horn },
-		{ TEXT("star"), TEXT("jug"), FVector(1.1f, 1.1f, 0.55f), 0.05f, FHoldTemplate::Star },
+		{ TEXT("star"), TEXT("jug"), FVector(.85f, 1.3f, .75f), .035f, FHoldTemplate::Scoop },
 		{ TEXT("handle"), TEXT("jug"), FVector(0.6f, 1.2f, 0.6f), 0.07f, FHoldTemplate::Lip },
-		{ TEXT("edge"), TEXT("crimp"), FVector(0.28f, 1.2f, 0.2f), 0.04f, FHoldTemplate::Blob },
+		{ TEXT("edge"), TEXT("crimp"), FVector(0.34f, 1.2f, 0.26f), 0.035f, FHoldTemplate::Shelf },
 		{ TEXT("smile"), TEXT("crimp"), FVector(0.3f, 1.f, 0.22f), 0.04f, FHoldTemplate::Smile },
 		{ TEXT("chip"), TEXT("crimp"), FVector(0.4f, 0.5f, 0.16f), 0.08f, FHoldTemplate::Blob },
-		{ TEXT("rail"), TEXT("crimp"), FVector(0.22f, 1.9f, 0.22f), 0.03f, FHoldTemplate::Blob },
+		{ TEXT("rail"), TEXT("crimp"), FVector(0.28f, 1.9f, 0.25f), 0.03f, FHoldTemplate::Shelf },
 		{ TEXT("dome"), TEXT("sloper"), FVector(1.25f, 1.25f, 0.42f), 0.05f, FHoldTemplate::Blob },
 		{ TEXT("pebble"), TEXT("sloper"), FVector(0.85f, 1.5f, 0.38f), 0.1f, FHoldTemplate::Blob },
 		{ TEXT("fin"), TEXT("pinch"), FVector(1.1f, 0.3f, 0.55f), 0.05f, FHoldTemplate::Blob },
@@ -60,6 +60,10 @@ inline const TArray<FHoldTemplate>& HoldTemplates()
 		{ TEXT("knob"), TEXT("pinch"), FVector(0.5f, 0.5f, 0.45f), 0.08f, FHoldTemplate::Blob },
 		{ TEXT("pyramid"), TEXT("volume"), FVector(1.f, 1.f, 0.6f), 0.f, FHoldTemplate::Pyramid },
 		{ TEXT("wedge"), TEXT("volume"), FVector(1.3f, 0.9f, 0.5f), 0.f, FHoldTemplate::Wedge },
+		{ TEXT("scallop"), TEXT("jug"), FVector(.66f,1.25f,.72f), .065f, FHoldTemplate::Smile },
+		{ TEXT("stepped edge"), TEXT("crimp"), FVector(.42f,.77f,.31f), .055f, FHoldTemplate::Shelf },
+		{ TEXT("wave"), TEXT("sloper"), FVector(.84f,1.53f,.42f), .075f, FHoldTemplate::Smile },
+		{ TEXT("asymmetric rib"), TEXT("pinch"), FVector(1.4f,.48f,.53f), .07f, FHoldTemplate::Smile },
 	};
 	return Library;
 }
@@ -183,7 +187,13 @@ inline void BuildHold(int32 Template, float Size, const FTransform& Where, int32
 		FVector Local(Point.X, Point.Y, FMath::Max(Point.Z, 0.f));
 		switch (Hold.Shape)
 		{
-		case FHoldTemplate::Lip:
+		case FHoldTemplate::Scoop:
+   // A recessed face below a raised gripping rim, with an asymmetric shoulder.
+   Local.Z *= 1.f-.52f*FMath::Exp(-8.f*(FMath::Square(Local.X-.15f)+Local.Y*Local.Y));
+   Local.Z += .38f*FMath::Max(0.f,Local.X)*Point.Z;
+   Local.X += .16f*Local.Y*Point.Z;
+   break;
+  case FHoldTemplate::Lip:
 			// the top bulges out into a lip you can wrap fingers over
 			Local.Z += 0.45f * FMath::Max(Local.X, 0.f) * Local.Z;
 			Local.X -= 0.2f * Local.Z * Local.Z;
@@ -192,6 +202,11 @@ inline void BuildHold(int32 Template, float Size, const FTransform& Where, int32
 			// one end swells into a horn
 			Local.Z *= 1 + 0.6f * FMath::Max(Local.X, 0.f);
 			Local.X *= 1 + 0.25f * FMath::Max(Local.X, 0.f);
+			break;
+		case FHoldTemplate::Shelf:
+			// Round the corners, with a flatter pad on the pulling side.
+			Local.X = FMath::Sign(Local.X)*FMath::Pow(FMath::Abs(Local.X),Local.X>0?.48f:.85f);
+			Local.Z *= 1.f + .28f*FMath::Max(0.f,Local.X);
 			break;
 		case FHoldTemplate::Smile:
 			// a curved edge

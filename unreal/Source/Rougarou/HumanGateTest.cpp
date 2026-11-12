@@ -16,9 +16,9 @@ bool FHumanGateTest::RunTest(const FString& Parameters)
  if(!TestNotNull(TEXT("native fitted mesh"),Mesh))return false;
  FHumanRig Rig,Live;Rig.Initialize(Mesh->GetRefSkeleton(),FHumanRig::ProfilePath());Live.Initialize(Mesh->GetRefSkeleton(),FHumanRig::ProfilePath());Rig.ColdIterations=3;
  FClimbSim Sim;FClimbSpec::Load(FPaths::ProjectContentDir()/TEXT("Data/routes.json"),Sim.Spec);Sim.Spec.Routes=AGymActor::Problems();
- Sim.Gate=[&](const FClimbSim& Now,int32 Limb,int32 Hold)->FString
+ Sim.Gate=[&](const FClimbSim& Now,int32 Limb,int32 Hold,float Across)->FString
  {
-  FClimbSim Try=Now;Try.Gate=nullptr;Try.Grips[Limb]=Hold;Try.Smeared[Limb]=false;Try.Latch[Limb]=0;Try.Tips[Limb]=Now.Holds()[Hold].Point;Try.Reaching=-1;
+  FClimbSim Try=Now;Try.Gate=nullptr;Try.Grips[Limb]=Hold;Try.Smeared[Limb]=false;Try.Latch[Limb]=0;Try.Placement[Limb]=Across;Try.Tips[Limb]=Try.Spot(Limb);Try.Reaching=-1;
   Rig.WarmFrom(Live);const FHumanPose Pose=Rig.Solve(FHumanGoals::FromSim(Try),0);
   if(!Pose.Finite)return FString();
   if(Pose.Miss[Limb]>8)return TEXT("reach");
@@ -38,7 +38,7 @@ bool FHumanGateTest::RunTest(const FString& Parameters)
    const double Start=FPlatformTime::Seconds();
    const FString Why=Sim.Check(Limb,Hold);
    Seconds+=FPlatformTime::Seconds()-Start;
-   RouteAsked++;if(!Why.IsEmpty())RouteRefused++;
+   RouteAsked++;if(!Why.IsEmpty()){RouteRefused++;AddInfo(FString::Printf(TEXT("  refused limb %d hold %d: %s"),Limb,Hold,*Why));}
   }
   AddInfo(FString::Printf(TEXT("%s: gate refused %d of %d reachable moves"),*Sim.Spec.Routes[Sim.Route].Name,RouteRefused,RouteAsked));
   Asked+=RouteAsked;Refused+=RouteRefused;

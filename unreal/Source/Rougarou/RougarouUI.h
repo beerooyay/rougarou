@@ -14,7 +14,23 @@ public:
  void Refresh(){Rebuild();}
  void SelectTab(int32 Index){Tab=Index;Rebuild();}
  virtual int32 OnPaint(const FPaintArgs&,const FGeometry&,const FSlateRect&,FSlateWindowElementList&,int32,const FWidgetStyle&,bool) const override;
+ virtual FReply OnMouseButtonDown(const FGeometry&,const FPointerEvent&) override;
+ virtual FReply OnMouseMove(const FGeometry&,const FPointerEvent&) override;
+ virtual FReply OnMouseWheel(const FGeometry&,const FPointerEvent&) override;
+ virtual FReply OnMouseButtonUp(const FGeometry&,const FPointerEvent&) override;
 private:
+ TSharedPtr<SBox> FormBody;
+ TArray<TSharedPtr<FString>> FormBones,FormClips;
+ int32 DragAxis=-1, DragJoint=INDEX_NONE;
+ FVector AnchorStart, AnchorPlane, AnchorNormal;
+ FTransform AnchorParent;
+ FVector2f DragStart,DragDirection,DragCenter,DragU,DragV;
+ float DragAngle=0;
+ bool RingDrag=false,OrbitDrag=false;
+ float DragSign=1;
+ float DragValue=0;
+ bool FormAxes(const FGeometry&,FVector2f&,TArray<FVector2f>&) const;
+ void RebuildForm();
  TWeakObjectPtr<ARougarouController> Owner;
  TSharedPtr<SBox> Body;
  int32 Tab=0;
