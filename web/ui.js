@@ -110,7 +110,7 @@ export class UI {
 			return `<article class="problem ${r?.sends ? 'sent' : ''}" style="--tape:${hex(route.tape)}">
 				<div class="head"><b>${route.name}</b>${route.edited ? '<span class="chip">your set</span>' : ''}<span class="grade">${route.grade}</span></div>
 				<small>${line}</small>
-				<div class="go"><button class="primary" data-pull="${i}">climb it</button><button data-walk="${i}">walk there</button><button class="ghost" data-edit="${i}">set it</button></div>
+				<div class="go"><button class="primary" data-pull="${i}">climb</button><button data-walk="${i}">visit</button><button class="ghost" data-edit="${i}">edit route</button></div>
 			</article>`;
 		}).join('');
 		for (const b of $('problems').querySelectorAll('button')) {

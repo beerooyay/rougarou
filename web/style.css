@@ -192,3 +192,26 @@ body.menu-open #corner, body.menu-open .hud, body.menu-open #tip { display: none
 	.vw-tools { margin-left: 0; }
 }
 @media (pointer: coarse) { .keys { display: none; } }
+
+/* Desktop-style navigation, with a compact horizontal layout on phones. */
+#menu .sheet { width:min(1080px,100%); display:grid; grid-template-columns:180px minmax(0,1fr); grid-template-rows:auto minmax(0,1fr) auto; height:min(760px,calc(100dvh - 40px)); background:rgba(24,28,31,.97); border-radius:22px; }
+#menu .sheet-head { grid-column:1/-1; padding:26px 28px; }
+#menu .tabs { grid-column:1; grid-row:2; flex-direction:column; flex-wrap:nowrap; padding:20px 14px; border-right:1px solid var(--edge); gap:8px; }
+#menu .tabs button { text-align:left; padding:12px 14px; min-height:44px; border-radius:10px; }
+#menu .tabs button.on { background:var(--accent); color:var(--accent-ink); }
+#menu .sheet-body { grid-column:2; grid-row:2; min-height:0; padding:22px; }
+#menu .sheet-foot { grid-column:1/-1; }
+#menu .problems { grid-template-columns:1fr; gap:12px; }
+#menu .problem { padding:18px 20px 18px 24px; gap:10px; }
+#menu .problem .grade { color:var(--tape); }
+#menu .problem .go { justify-content:flex-end; }
+#menu .problem .go button { white-space:nowrap; min-height:40px; }
+button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:640px) {
+ #menu .sheet { grid-template-columns:1fr; grid-template-rows:auto auto minmax(0,1fr) auto; height:calc(100dvh - 24px); }
+ #menu .sheet-head { padding:18px; }
+ #menu .tabs { grid-column:1; grid-row:2; flex-direction:row; overflow-x:auto; border-right:0; border-bottom:1px solid var(--edge); padding:10px; }
+ #menu .tabs button { flex-shrink:0; white-space:nowrap; padding:10px; }
+ #menu .sheet-body { grid-column:1; grid-row:3; padding:12px; }
+ #menu .sheet-foot { padding:12px; }
+}

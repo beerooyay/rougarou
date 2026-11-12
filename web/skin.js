@@ -57,9 +57,14 @@ function limit(start, end, point, normal, margin, bend) {
 }
 
 export async function loadSkin(scene) {
-	const head = await fetch('./models/corey-player.glb', { method: 'HEAD' }).catch(() => null);
-	if (!head?.ok) return null;
-	const gltf = await new GLTFLoader().loadAsync('./models/corey-player.glb');
+ // Prefer the optional local rig, then use the character shipped with Pages.
+ let model = null;
+ for (const candidate of ['./models/corey-player.glb', './models/skin.glb']) {
+  const response = await fetch(candidate, { method: 'HEAD' }).catch(() => null);
+  if (response?.ok) { model = candidate; break; }
+ }
+ if (!model) return null;
+ const gltf = await new GLTFLoader().loadAsync(model);
 	const response=await fetch('./human-motion.json');
 	if(!response.ok)throw new Error('human motion profile missing');
 	return new Skin(gltf, scene, await response.json());
