@@ -179,6 +179,7 @@ for (const l of gym.lights) {
 }
 
 const climber = new Climber(scene);
+climber.collisionHolds=()=>[...gym.obstacles,...routes.flatMap(route=>route.holds)];
 // Selection UI must survive hiding the procedural fallback body.
 scene.add(climber.marker);
 climber.marker.geometry.dispose();

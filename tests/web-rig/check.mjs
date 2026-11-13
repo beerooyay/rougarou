@@ -6,7 +6,8 @@ import {Skin} from '../../web/skin.js';
 import {Climber} from '../../web/climber.js';
 import {Sim,Vec2} from '../../web/sim.js';
 import {clampRel} from '../../web/human-motion.js';
-import {problems,routeHolds} from '../../web/gym.js';
+import {problems,routeHolds,buildGym} from '../../web/gym.js';
+import {sceneClearance} from '../../web/hold-contact.js';
 const root=fileURLToPath(new URL('../../web/',import.meta.url));
 function rig(){const data=fs.readFileSync(root+'models/blaize-player.glb'),g=JSON.parse(data.subarray(20,20+data.readUInt32LE(12))),joints=new Set(g.skins.flatMap(s=>s.joints));const nodes=g.nodes.map((n,i)=>{const b=joints.has(i)?new T.Bone():new T.Object3D();b.name=n.name||'';if(n.translation)b.position.fromArray(n.translation);if(n.rotation)b.quaternion.fromArray(n.rotation);if(n.scale)b.scale.fromArray(n.scale);return b;});g.nodes.forEach((n,i)=>n.children?.forEach(c=>nodes[i].add(nodes[c])));const scene=new T.Scene(),model=new T.Group();g.scenes[g.scene||0].nodes.forEach(i=>model.add(nodes[i]));return {scene,skin:new Skin({scene:model},scene,JSON.parse(fs.readFileSync(root+'human-motion.json')))};}
 const routes=problems();routes.forEach(routeHolds);
@@ -118,9 +119,40 @@ for(const limb of [0,1])for(const across of [-1,1]){
   const wanted=part.toe.sub(part.heel),target=new T.Vector3(-part.toe.y/100,part.toe.z/100,part.toe.x/100);
   const angle=forward.angleTo(new T.Vector3(-wanted.y,wanted.z,wanted.x))*180/Math.PI;
   const miss=skin.bone[side+'SoleContact'].getWorldPosition(new T.Vector3()).distanceTo(target)*100;
-  assert(angle<30,`${side} shoe rolled away after step/return: ${angle} degrees`);
+  // Edging permits toe rotation; do not force a wall-normal shoe and lock the knee.
+  assert(angle<75,`${side} shoe turned backward after step/return: ${angle} degrees`);
   assert(miss<1.5,`${side} sole missed after step/return: ${miss} cm`);
   return {side,angle,miss};
  });
  console.log({stepReturn:{limb,across,feet}});
+}
+
+// A stationary joint can pass a jitter test. Require actual flexion when a
+// target moves, while keeping the same per-frame angular budget.
+for(const limb of [0,1,2,3]){
+ const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);let pose;
+ for(let f=0;f<120;f++){sim.step(1/60);pose=c.climbPose(sim,-1,1/60);skin.pose(pose,1/60);}
+ const part=pose.limbs[limb],side=limb%2?'Left':'Right',joint=skin.bone[side+(limb<2?'Leg':'ForeArm')];
+ const before=joint.quaternion.clone(),shift=part.end.mul(0);shift.z=limb<2?30:-25;
+ part.end=part.end.add(shift);
+ if(limb<2){part.foot.toe=part.foot.toe.add(shift);part.foot.heel=part.foot.heel.add(shift);}
+ else{part.hand.contact=part.hand.contact.add(shift);part.hand.palm=part.hand.palm.add(shift);delete part.hand.surface;delete part.hand.clearance;}
+ let previous=before,maxStep=0;
+ for(let f=0;f<180;f++){skin.pose(pose,1/60);maxStep=Math.max(maxStep,previous.angleTo(joint.quaternion)*180/Math.PI);previous=joint.quaternion.clone();}
+ const flex=before.angleTo(joint.quaternion)*180/Math.PI;
+ assert(flex>5,`${joint.name} stayed locked after its target moved: ${flex} degrees`);
+ assert(maxStep<5.731,`${joint.name} snapped while bending: ${maxStep} degrees`);
+ console.log({respondingJoint:joint.name,flexDegrees:flex,maxStepDegrees:maxStep});
+}
+{
+ const route=routes[0],behind=route.map(new Vec2(0,.8),-.5);
+ assert(sceneClearance(behind,route.panels,[])<0,'bare wall penetration was missed');
+ const gym=buildGym(routes);
+ assert(gym.obstacles.length>0,'decorative holds are missing collision descriptors');
+ for(const hold of [route.holds[0],gym.obstacles[0]]){
+  const surface=hold.surface,x=(surface.min.x+surface.max.x)/2,y=(surface.min.y+surface.max.y)/2;
+  const point=surface.origin.mul(0);point.x=x;point.y=y;point.z=surface.height(x,y)-.5;
+  assert(sceneClearance(surface.world(point),[],[hold])<0,'non-selected hold penetration was missed');
+ }
+ console.log({collisionCoverage:'bare wall, route holds, decorative holds'});
 }

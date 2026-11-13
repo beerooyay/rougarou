@@ -88,7 +88,7 @@ export class Skin {
 		this.refSide = at('LeftArm').p.clone().sub(at('RightArm').p).normalize();
 		this.refPelvis = at('LeftUpLeg').p.clone().add(at('RightUpLeg').p).divideScalar(2);
 		this.motion=new HumanMotion(this,profile);
-		this.swivels=[0,0,0,0];this.bodyOffset=new THREE.Vector3();
+		this.chainTargets=new Map();this.swivels=[0,0,0,0];this.bodyOffset=new THREE.Vector3();
 		this.garments=new GarmentPhysics();
 	}
 
@@ -109,7 +109,7 @@ export class Skin {
 	}
 
 	// drive a bone so its axis points from At toward Direction, keeping Facing in the y-plane
-	aim(b, next, at, direction, facing, front) {
+	aim(b, next, at, direction, facing, front, temporal=true) {
 		if (direction.lengthSq() < 1e-8) return;
 		const here = this.worldOf(b).p;
 		const current = next ? this.worldOf(next).p.clone().sub(here).normalize()
@@ -127,7 +127,7 @@ export class Skin {
 			q = new THREE.Quaternion().setFromUnitVectors(current, target).multiply(this.worldOf(b).q);
 		}
 		const parent=b.parent&&this.bone[b.parent.name]?this.worldOf(b.parent):this.base;
-		q=this.motion.limit(b,q,parent.q);
+		q=this.motion.limit(b,q,parent.q,temporal);
 		// A pose may rotate joints; only the pelvis can translate the skeleton.
 		const p=this.worldOf(b).p.clone();
 		this.wants.set(b, {p,q});this.world.clear();
@@ -135,7 +135,7 @@ export class Skin {
 
  fitFingers(side,hand) {
   const surface=hand.surface,over=unit(hand.over),inside=unit(hand.out).negate();
-  const clear=p=>surface?surface.clear(new Vec3(p.z*100,-p.x*100,p.y*100)):100;
+  const clear=p=>{const point=new Vec3(p.z*100,-p.x*100,p.y*100);return hand.clearance?hand.clearance(point):surface?surface.clear(point):100;};
   const rest=this.restWorld,world=b=>this.worldOf(b),chain=f=>[1,2,3].map(j=>this.bone[`${side}Hand${f}${j}`]);
   const tipOf=ch=>{
    const last=ch[2],offset=rest.get(last).p.clone().sub(rest.get(ch[1]).p).applyQuaternion(rest.get(last).q.clone().invert());
@@ -173,13 +173,14 @@ export class Skin {
     return {gap,tip:clear(points[3])};
    };
    let best=1,score=Infinity;
-   if(surface)for(let i=0;i<=32;i++){
+   const colliding=surface || (hand.clearance && apply(1).gap<.9);
+   if(colliding)for(let i=0;i<=32;i++){
     const amount=-.15+1.4*i/32,{gap,tip}=apply(amount);
     const cost=Math.max(0,.9-gap)**2*1000+Math.abs(tip-1)+1.25*Math.abs(amount-1);
     if(cost<score){score=cost;best=amount;}
    }
    let result=apply(best);
-   if(surface && result.gap<.8){
+   if(colliding && result.gap<.8){
     let offsets=[0,0,0],score=Math.max(0,.9-result.gap)**2*1000+Math.abs(result.tip-1);
     for(const step of [30,15,8,4,2])for(let j=0;j<3;j++){
      let chosen=offsets;
@@ -221,7 +222,7 @@ export class Skin {
 	pose(pose,delta=1/60,walking=false) {
   if(delta<=0 && this.motion.previous.size && this.wasWalking===walking)return;
   this.motion.step=delta;
-		if(this.wasWalking!==walking){this.motion.reset();this.garments.reset();this.bodyOffset.set(0,0,0);this.wasWalking=walking;}
+		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.wasWalking=walking;}
 		this.world.clear(); this.wants.clear();
 		const pelvis = three(pose.roots[0].add(pose.roots[1]).mul(0.5));
 		const chest = three(pose.roots[2].add(pose.roots[3]).mul(0.5));
@@ -238,7 +239,7 @@ export class Skin {
 		const to = frame(side, up);
 		const turn = to.clone().multiply(from.clone().invert());
 		const hips = this.bone['Hips'], restHips = this.restWorld.get(hips);
-		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1){this.motion.reset();}
+		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1){this.motion.reset();this.chainTargets.clear();}
 		this.lastPelvis=pelvis.clone();
 		this.wants.set(hips, { p: pelvis, q: this.motion.limit(hips,turn.clone().multiply(restHips.q),this.base.q) });
 		const mix=this.motion.profile.native_mix,front=this.motion.front;
@@ -313,12 +314,12 @@ export class Skin {
      const normal=need.normalize(),roll=Math.atan2(d1.dot(here.clone().cross(normal)),here.dot(normal))*Math.min(1,(sine-.02)/.3);
      qu.premultiply(new THREE.Quaternion().setFromAxisAngle(d1,roll));
     }
-    qu=this.motion.limit(top,qu,parent);this.wants.set(top,{p:start.clone(),q:qu});this.world.clear();
+    qu=this.motion.limit(top,qu,parent,false);this.wants.set(top,{p:start.clone(),q:qu});this.world.clear();
     const middle=this.worldOf(midB).p.clone(),carriedLower=qu.clone().multiply(upperRest.clone().invert()).multiply(lowerRest);
     const lowerDirection=this.restLocal.get(bot).p.clone().normalize().applyQuaternion(carriedLower);
     const ql=new THREE.Quaternion().setFromUnitVectors(lowerDirection,end.clone().sub(middle).normalize()).multiply(carriedLower);
-    this.wants.set(midB,{p:middle,q:this.motion.limit(midB,ql,qu)});this.world.clear();
-    if(leg){const parent=this.worldOf(bot.parent);this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q)});this.world.clear();}
+    this.wants.set(midB,{p:middle,q:this.motion.limit(midB,ql,qu,false)});this.world.clear();
+    if(leg){const parent=this.worldOf(bot.parent);this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q,false)});this.world.clear();}
     const sole=leg?this.bone[(limb===0?'Right':'Left')+'SoleContact']:null;
     const actual=this.worldOf(sole||bot).p,targetPoint=sole?three(part.foot.toe):end,depth=middle.clone().sub(wallPoint).dot(out);
 				const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
@@ -335,9 +336,9 @@ export class Skin {
 
 			if (leg) {
     const parent=this.worldOf(bot.parent);
-    this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q)});this.world.clear();
+    this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q,false)});this.world.clear();
 			} else {
-				this.aim(bot, tip, ik.end, three(part.hand.over), out.clone().negate(), this.refUp.clone().negate());
+				this.aim(bot, tip, ik.end, three(part.hand.over), out.clone().negate(), this.refUp.clone().negate(), false);
 
 
 			}
@@ -351,7 +352,7 @@ export class Skin {
     const evaluate=values=>{
      for(let j=0;j<3;j++){
       const b=joints[j],parent=this.worldOf(b.parent);
-      const q=this.motion.limit(b,parent.q.clone().multiply(values[j]),parent.q);
+      const q=this.motion.limit(b,parent.q.clone().multiply(values[j]),parent.q,false);
       this.wants.set(b,{p:this.worldOf(b).p.clone(),q});this.world.clear();
      }
      const middle=this.worldOf(midB).p,clear=middle.clone().sub(wallPoint).dot(out);
@@ -360,20 +361,24 @@ export class Skin {
       const sideName=limb===2?'Right':'Left';
       for(const digit of ['Thumb','Index','Middle','Pinky']){
        const p=this.worldOf(this.bone[sideName+'Hand'+digit+'1']).p;
-       const clearance=part.hand.surface.clear(new Vec3(p.z*100,-p.x*100,p.y*100))*.01;
+       const point=new Vec3(p.z*100,-p.x*100,p.y*100);
+       const clearance=(part.hand.clearance?part.hand.clearance(point):part.hand.surface.clear(point))*.01;
        palmPenalty+=Math.max(0,.014-clearance)**2*80000;
       }
      }
      let continuity=0;
      for(const b of joints){const previous=this.motion.previous.get(b);if(previous){const local=this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q);continuity+=10*previous.angleTo(local)**2;}}
      const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
-     // Preserve the shoe frame as well as its toe point: a point-only fit
-     // can roll the ankle and turn the entire planted leg sideways.
-     return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+(leg?180:20)*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
+     // A gentle facing preference allows edging without locking the leg.
+     return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+20*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
     let cost=evaluate(locals);
     if(joints.every(b=>this.motion.previous.has(b))){const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);if(score<=cost){locals=previous;cost=score;}evaluate(locals);}
 
+    if(joints.every(b=>this.chainTargets.has(b))){
+     const warm=joints.map(b=>this.chainTargets.get(b).clone()),score=evaluate(warm);
+     if(score<cost){locals=warm;cost=score;}evaluate(locals);
+    }
     for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
      let chosen=locals;
      for(const sign of [-1,1]){
@@ -384,6 +389,14 @@ export class Skin {
     }
 
    }
+   // Solve the full anatomical target before spending this frame's motion
+   // budget. Rate-limiting search candidates can trap a flexed chain.
+   const chain=[top,midB,bot];
+   const localTargets=chain.map(b=>this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q));
+   chain.forEach((b,j)=>{this.chainTargets.set(b,localTargets[j].clone());const parent=this.worldOf(b.parent);
+    const q=this.motion.limit(b,parent.q.clone().multiply(localTargets[j]),parent.q);
+    this.wants.set(b,{p:this.worldOf(b).p.clone(),q});this.world.clear();
+   });
    if(!leg)this.fitFingers(limb===2?'Right':'Left',part.hand);
 
 		}

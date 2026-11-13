@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { Vec2, Vec3 } from './sim.js';
 import { toThree } from './gym.js';
 import { Tube, bent } from './tube.js';
+import { sceneClearance } from './hold-contact.js';
 
 const Gap = 30;
 const Skin = 0xc98e6d, Tee = 0xe6dfcc, Shorts = 0x3f4a2c, Shoe = 0xe9b812, Sole = 0x161616, Hair = 0x4a3324, Beard = 0x8a5634;
@@ -282,6 +283,7 @@ export class Climber {
 	// the climbing pose, read off the sim
 	climbPose(sim, selected, delta) {
 		const face = sim.routes[sim.route];
+  const collisionHolds=this.collisionHolds?this.collisionHolds():face.holds;
 		const at = (p, depth) => face.map(p, depth);
 		const frame = face.at(sim.position.y);
 		const ease = Math.min(1, delta * 5);
@@ -417,6 +419,10 @@ export class Climber {
 				part = blend(part, hangingPart, release);
 				pole = pole.lerp(hangingPole, release);
 			}
+			if(arm){
+    const nearby=collisionHolds.filter(h=>{const origin=h.origin??h.surface?.origin;return origin&&origin.dist(part.hand.palm)<(h.radius??60)+30;});
+    part.hand.clearance=p=>sceneClearance(p,face.panels,nearby);
+   }
 			limbs.push({ ...part, pole });
 			if (limb === selected) marker = contact;
 		}

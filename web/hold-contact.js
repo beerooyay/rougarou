@@ -49,3 +49,22 @@ export class HoldContact {
   return this.world(new Vec3(l.x,l.y,this.height(l.x,l.y)));
  }
 }
+
+// Collision sampling is independent of the hold being gripped. A finger can
+// touch the bare panel or a neighbouring hold while the grip pose stays the same.
+export function sceneClearance(point,panels,holds){
+ let gap=Infinity;
+ for(const panel of panels){
+  const along=point.sub(panel.origin).dot(panel.up)/100;
+  if(along>=-.15&&along<=panel.length+.15)gap=Math.min(gap,point.sub(panel.origin).dot(panel.out));
+ }
+ for(const hold of holds){
+  if(hold.origin&&point.dist(hold.origin)>hold.radius+20)continue;
+  const surface=hold.surface;if(!surface)continue;
+  const p=surface.local(point);
+  if(p.z<surface.min.z-3||p.z>surface.max.z+20)continue;
+  if(p.x<surface.min.x||p.x>surface.max.x||p.y<surface.min.y||p.y>surface.max.y)continue;
+  gap=Math.min(gap,p.z-surface.height(p.x,p.y));
+ }
+ return gap;
+}

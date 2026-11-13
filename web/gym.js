@@ -317,6 +317,15 @@ function buildHold(index, size, where, seed, body, dark, fine = false) {
 
 // builds every mesh of the gym as flat-shaded triangle soups and box lists; the page turns them into three.js meshes
 export function buildGym(routes) {
+ const obstacles=[];
+ // Reuse the rendered triangles. Rasterize only when a hand comes nearby.
+ const decoration=(index,size,where,seed,body,dark)=>{
+  const first=body.positions.length;
+  buildHold(index,size,where,seed,body,dark);
+  const last=body.positions.length;let cached=null;
+  const origin=where.point(V(0,0,0)),up=where.vector(V(1,0,0)),out=where.vector(V(0,0,1));
+  obstacles.push({origin,radius:size*2,get surface(){return cached??=new HoldContact(body.positions.slice(first,last),origin,up,out);}});
+ };
 	const dice = new Dice(1991);
 	const boards = [new Sink(), new Sink()];
 	const palette = [];
@@ -366,13 +375,13 @@ export function buildGym(routes) {
 			const up = rotateAround(V(0, 0, 1), normal, angle);
 			const size = holdSize(Templates[index].kind) * (dice.frand() < 0.07 ? dice.range(1.6, 2.3) : dice.range(0.8, 1.2));
 			const color = swatch(decor[dice.int(0, decor.length - 1)]);
-			buildHold(index, size, holdFrame(a.add(b.sub(a).mul(s)).add(c.sub(a).mul(t)), normal, up), dice.int(0, 1 << 20), paint[color], shadow);
+			decoration(index, size, holdFrame(a.add(b.sub(a).mul(s)).add(c.sub(a).mul(t)), normal, up), dice.int(0, 1 << 20), paint[color], shadow);
 		}
 		if (dice.frand() < 0.035 * crowd) {
 			const black = dice.frand() < 0.6;
 			const up = rotateAround(V(0, 0, 1), normal, dice.range(0, 360));
 			const color = swatch(black ? [0.02, 0.02, 0.025] : [0.2, 0.21, 0.23]);
-			buildHold(pickTemplate('volume', dice.int(0, 9)), dice.range(45, 75), holdFrame(a.add(b).add(c).mul(1 / 3), normal, up), dice.int(0, 1 << 20), paint[color], shadow);
+			decoration(pickTemplate('volume', dice.int(0, 9)), dice.range(45, 75), holdFrame(a.add(b).add(c).mul(1 / 3), normal, up), dice.int(0, 1 << 20), paint[color], shadow);
 		}
 	};
 
@@ -509,7 +518,7 @@ export function buildGym(routes) {
 	for (let x = 1000; x <= 1700; x += 100) block(V(x, -1538, 230), V(6, 6, 460), [0.8, 0.8, 0.8], false);
 	lights.push({ at: V(1350, -1350, 260), color: [0.8, 0.9, 1], intensity: 4, range: 12 });
 
-	return { boards, palette, paint, shadow, blocks, lights, holes };
+	return { boards, palette, paint, shadow, blocks, lights, holes, obstacles };
 }
 
 // one problem's holds in its tape color, turned so each lip faces away from the way it is pulled. built apart from the gym
