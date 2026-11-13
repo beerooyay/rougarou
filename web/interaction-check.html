@@ -12,6 +12,8 @@ async function ready(){
   if(!hips)throw Error("native pelvis bone missing");
   for(let l=0;l<4;l++){
    const renderedBefore=hips.getWorldPosition(new g.THREE.Vector3());
+   const contact=g.screenOfLimb(l);
+   if(g.pick(contact.x,contact.y)!==l)throw Error('visible limb cannot be picked '+l);
    const before=g.pose.roots[0],grips=JSON.stringify(g.sim.grips),camera=g.camera.position.clone();
    g.lift(l);g.tick(1/60);
    const displacement=g.pose.roots[0].sub(before).len();

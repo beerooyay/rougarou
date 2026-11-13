@@ -53,10 +53,15 @@ export class HoldContact {
 // Collision sampling is independent of the hold being gripped. A finger can
 // touch the bare panel or a neighbouring hold while the grip pose stays the same.
 export function sceneClearance(point,panels,holds){
- let gap=Infinity;
+ let gap=Infinity,nearest=Infinity;
+ // Match native HumanWallDepth: finite panel strips, not overlapping infinite
+ // planes. Outside a strip, measure its edge instead of an imaginary extension.
  for(const panel of panels){
-  const along=point.sub(panel.origin).dot(panel.up)/100;
-  if(along>=-.15&&along<=panel.length+.15)gap=Math.min(gap,point.sub(panel.origin).dot(panel.out));
+  const d=point.sub(panel.origin),along=d.dot(panel.up),depth=d.dot(panel.out);
+  if(depth< -60)continue;
+  const beyond=along-clamp(along,0,panel.length*100);
+  const distance=beyond===0?Math.abs(depth):Math.hypot(depth,beyond);
+  if(distance<nearest){nearest=distance;gap=beyond===0?depth:distance;}
  }
  for(const hold of holds){
   if(hold.origin&&point.dist(hold.origin)>hold.radius+20)continue;

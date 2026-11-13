@@ -1,0 +1,1825 @@
+{
+  "scope": "Native skeleton; nine routes; starts and reachable foot/hand moves and returns. Contact tolerance 2 cm. Not a full mesh collision or physical input proof.",
+  "rows": [
+    {
+      "route": "slab dance",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.99999901168626,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.3755573188495611,
+          "extension": 0.49598345426730883
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.14407857860199969,
+          "extension": 0.49326676412411485
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.769655933027009,
+          "extension": 0.9972628898528227
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.6354480322379934,
+          "extension": 0.9899235857752321
+        }
+      ]
+    },
+    {
+      "route": "slab dance",
+      "stage": "move 0 to 4",
+      "fallen": false,
+      "hipDepthCm": 67.43849868950532,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 4,
+          "latched": true,
+          "missCm": 0.11278602626911442,
+          "extension": 0.6885294014615512
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.03129525616960612,
+          "extension": 0.952903754081274
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.20422833778911859,
+          "extension": 0.8747156049084738
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.3526105319237142,
+          "extension": 0.7520961819661558
+        }
+      ]
+    },
+    {
+      "route": "slab dance",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99998513580027,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.6819215146487894,
+          "extension": 0.613612893020194
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.20869138307512775,
+          "extension": 0.5352088392173734
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.809706140777279,
+          "extension": 0.9858757202736423
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.277077490427435,
+          "extension": 0.9814815672408954
+        }
+      ]
+    },
+    {
+      "route": "slab dance",
+      "stage": "move 2 to 3",
+      "fallen": false,
+      "hipDepthCm": 43.282764097389645,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.23226973281040578,
+          "extension": 0.6519580008070988
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.11025039160314806,
+          "extension": 0.615759668139632
+        },
+        {
+          "limb": 2,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.9600214221470564,
+          "extension": 0.8206641610260994
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.4363784882472492,
+          "extension": 0.4638248778595989
+        }
+      ]
+    },
+    {
+      "route": "slab dance",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.999539949902044,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.3234922105145854,
+          "extension": 0.6549594611405102
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.2660498005617016,
+          "extension": 0.5470875548814103
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.5000848075136233,
+          "extension": 0.9953372526072043
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.680143059109838,
+          "extension": 0.9904026182327352
+        }
+      ]
+    },
+    {
+      "route": "steep street",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.999994907916616,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.20506140307818788,
+          "extension": 0.42005059715208576
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.14076443398694521,
+          "extension": 0.5279565905574426
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.2892374623686186,
+          "extension": 0.7557811617393231
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.2453651095580428,
+          "extension": 0.7629998071161258
+        }
+      ]
+    },
+    {
+      "route": "steep street",
+      "stage": "move 0 to 5",
+      "fallen": false,
+      "hipDepthCm": 73.41597101419609,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 5,
+          "latched": true,
+          "missCm": 0.14851882638776598,
+          "extension": 0.8367159276612159
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.11601052484099517,
+          "extension": 0.9221500028030879
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.24439483524280914,
+          "extension": 0.8265964550304846
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.2036277405397881,
+          "extension": 0.8478785695539099
+        }
+      ]
+    },
+    {
+      "route": "steep street",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99996265684609,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.8247946916017034,
+          "extension": 0.5578306395321028
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.009377941581410964,
+          "extension": 0.5350621151483713
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.33195281527990644,
+          "extension": 0.8228339264799901
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.49723158674938545,
+          "extension": 0.790332786738431
+        }
+      ]
+    },
+    {
+      "route": "steep street",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 49.72448368205001,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.08868240744119736,
+          "extension": 0.5945337055967032
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.2572262548936847,
+          "extension": 0.6547155517072227
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 0.41197959003476764,
+          "extension": 0.8811938196251776
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.15861657822652409,
+          "extension": 0.4995298184330737
+        }
+      ]
+    },
+    {
+      "route": "steep street",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.99984943144748,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.7502579582576163,
+          "extension": 0.6000654549326326
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.013026096715852828,
+          "extension": 0.5606789546257517
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.618321345104622,
+          "extension": 0.86706820941064
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.43163567703093264,
+          "extension": 0.8580700878886608
+        }
+      ]
+    },
+    {
+      "route": "kicker",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.99999901168626,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.16471718923431874,
+          "extension": 0.4783219097574734
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.13527740893550003,
+          "extension": 0.4855941546570664
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.709546278741731,
+          "extension": 0.9854737694297654
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.4926328657848633,
+          "extension": 0.9714434486318958
+        }
+      ]
+    },
+    {
+      "route": "kicker",
+      "stage": "move 0 to 4",
+      "fallen": false,
+      "hipDepthCm": 67.283033997104,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 4,
+          "latched": true,
+          "missCm": 1.6737337874037144,
+          "extension": 0.7608346487090404
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 1.6870362112480404,
+          "extension": 0.9477337000500071
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.06603233777050493,
+          "extension": 0.8404824899460821
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.29594724267211087,
+          "extension": 0.7329735059994537
+        }
+      ]
+    },
+    {
+      "route": "kicker",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99999054117553,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 1.1739285824703845,
+          "extension": 0.6242456909137518
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.0332611897303696,
+          "extension": 0.5591065774838698
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.1031886109072284,
+          "extension": 0.9969419459433524
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.021611217915693,
+          "extension": 0.9859257222023899
+        }
+      ]
+    },
+    {
+      "route": "kicker",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 46.97509827362631,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.1668471320937767,
+          "extension": 0.6364952982174237
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.016003717448578113,
+          "extension": 0.6947060108980977
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 0.1581366335149843,
+          "extension": 0.8650995309604548
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.1001485041514847,
+          "extension": 0.6209728989107355
+        }
+      ]
+    },
+    {
+      "route": "kicker",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.99981909066373,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.2793557622744941,
+          "extension": 0.6429827036671734
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.018012920676731783,
+          "extension": 0.567121503956799
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.8283640756928958,
+          "extension": 0.9851764051133488
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.4434178860216362,
+          "extension": 0.976911562829498
+        }
+      ]
+    },
+    {
+      "route": "the roof",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.999994907916616,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.13758608696546995,
+          "extension": 0.6132925787332314
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.1167575303819749,
+          "extension": 0.6013855569041324
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.3236772003089199,
+          "extension": 0.6789863484491225
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.18766982219302344,
+          "extension": 0.7692871797408707
+        }
+      ]
+    },
+    {
+      "route": "the roof",
+      "stage": "move 0 to 5",
+      "fallen": false,
+      "hipDepthCm": 73.43580589470217,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 5,
+          "latched": true,
+          "missCm": 0.5768451335415745,
+          "extension": 0.9294369548347317
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 10.13151959475993,
+          "extension": 0.9970763374927438
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.48858298150741125,
+          "extension": 0.4740839550812518
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.2254041180175082,
+          "extension": 0.6638875004339727
+        }
+      ]
+    },
+    {
+      "route": "the roof",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.999960748414125,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 1.2556498119616593,
+          "extension": 0.6677139968295104
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.6031131085620852,
+          "extension": 0.6242940444371394
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.32938767494009386,
+          "extension": 0.7534033049646811
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.20669518153627972,
+          "extension": 0.856956503708253
+        }
+      ]
+    },
+    {
+      "route": "the roof",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 44.809174532847926,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.3978113244507902,
+          "extension": 0.5722915856966482
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.00685407181139564,
+          "extension": 0.5967085730454683
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 0.5549907437633254,
+          "extension": 0.9883098650603341
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.18650272542423038,
+          "extension": 0.5218395385637945
+        }
+      ]
+    },
+    {
+      "route": "the roof",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.99979806072979,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 2.3546334185609457,
+          "extension": 0.7739697863332337
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.151599384673606,
+          "extension": 0.6664101739796282
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.17115258622808935,
+          "extension": 0.781316105027792
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.20377689658737652,
+          "extension": 0.8538005845377333
+        }
+      ]
+    },
+    {
+      "route": "wave",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.999994907916616,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.0013091386208372207,
+          "extension": 0.5533489200053152
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.0012022312089026506,
+          "extension": 0.5147827095802379
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.0010929423720687,
+          "extension": 0.9844604242609106
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.3985471159173697,
+          "extension": 0.9738858827837847
+        }
+      ]
+    },
+    {
+      "route": "wave",
+      "stage": "move 0 to 5",
+      "fallen": false,
+      "hipDepthCm": 73.47064433118074,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 5,
+          "latched": true,
+          "missCm": 0.4287015686240466,
+          "extension": 0.8193168082362899
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 6.33309209093962,
+          "extension": 0.9974036740967588
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.3948673345502244,
+          "extension": 0.779204648581266
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.6130200969018195,
+          "extension": 0.7743592158343012
+        }
+      ]
+    },
+    {
+      "route": "wave",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.999962997143506,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.12076861571428248,
+          "extension": 0.6749286512803844
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.06718050176977468,
+          "extension": 0.5701560803098507
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.896043437954317,
+          "extension": 0.996966122221221
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.2818459543280858,
+          "extension": 0.9900661741843245
+        }
+      ]
+    },
+    {
+      "route": "wave",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 46.66092863431902,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.5022563876704124,
+          "extension": 0.7324369302939681
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.10226489641397547,
+          "extension": 0.7367290277381818
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 5.850070135304768,
+          "extension": 0.9769156569641612
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.2221691176463041,
+          "extension": 0.5170903993785669
+        }
+      ]
+    },
+    {
+      "route": "wave",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.999815937908004,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.19268909802414225,
+          "extension": 0.705378865503353
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.013196665629141083,
+          "extension": 0.5869900295035946
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.1710073913354169,
+          "extension": 0.9600772653063283
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.1606228171886088,
+          "extension": 0.9442238280860217
+        }
+      ]
+    },
+    {
+      "route": "lean",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.999994907916616,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.0012569530768376989,
+          "extension": 0.47976483805943476
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.0012752926474953513,
+          "extension": 0.523769314304046
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.6133911660365956,
+          "extension": 0.9757880363494952
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.716197645125199,
+          "extension": 0.9704522219909296
+        }
+      ]
+    },
+    {
+      "route": "lean",
+      "stage": "move 0 to 5",
+      "fallen": false,
+      "hipDepthCm": 73.52593853477053,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 5,
+          "latched": true,
+          "missCm": 0.995260057582901,
+          "extension": 0.8020588875862289
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 5.581578699687986,
+          "extension": 0.9965583041836975
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.4125983390498084,
+          "extension": 0.7626818511994784
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.6696110116287074,
+          "extension": 0.8167904598409351
+        }
+      ]
+    },
+    {
+      "route": "lean",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99996341942495,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.2268664874324513,
+          "extension": 0.6030319808946396
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.14768661047722703,
+          "extension": 0.5833597290479193
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.609812657998509,
+          "extension": 0.9961930921597952
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 2.2261282446552904,
+          "extension": 0.990523102050102
+        }
+      ]
+    },
+    {
+      "route": "lean",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 48.39878778225196,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.35272629379622694,
+          "extension": 0.620397232876996
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.008846610669486662,
+          "extension": 0.6769452132048102
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 1.1694794959198656,
+          "extension": 0.9954150562168471
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.1568426713962183,
+          "extension": 0.6510462261305656
+        }
+      ]
+    },
+    {
+      "route": "lean",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.99983431465222,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.16161496086770644,
+          "extension": 0.6265528205054958
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.014368244653028956,
+          "extension": 0.6237279187580972
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.133235739865734,
+          "extension": 0.9866283451556868
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.8414024105285296,
+          "extension": 0.9824045118308689
+        }
+      ]
+    },
+    {
+      "route": "pour",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.999994907916616,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.1653475209739053,
+          "extension": 0.48921737131841103
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.20381701846061487,
+          "extension": 0.49335683109113126
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.0677201789708735,
+          "extension": 0.97249178757672
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.3386231182529926,
+          "extension": 0.9551656043661074
+        }
+      ]
+    },
+    {
+      "route": "pour",
+      "stage": "move 0 to 5",
+      "fallen": false,
+      "hipDepthCm": 73.55954676521549,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 5,
+          "latched": true,
+          "missCm": 0.2873717290520355,
+          "extension": 0.7980356061887819
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 3.5328574507901984,
+          "extension": 0.9988327764504918
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.29674177892427683,
+          "extension": 0.82375843327855
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.34424181984474017,
+          "extension": 0.7814985665625409
+        }
+      ]
+    },
+    {
+      "route": "pour",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99996370982379,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.11675331508327008,
+          "extension": 0.6278059129491531
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.2705655192598223,
+          "extension": 0.5423832253658841
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.4306814462962145,
+          "extension": 0.9914605251779692
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.8098351006910363,
+          "extension": 0.9905066912293913
+        }
+      ]
+    },
+    {
+      "route": "pour",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 46.85208345760363,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.09957041564955924,
+          "extension": 0.6263446368524264
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.008636236878026775,
+          "extension": 0.6218766243309475
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 0.3412836569363643,
+          "extension": 0.9966823035907484
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.25130867776425325,
+          "extension": 0.7064759860477303
+        }
+      ]
+    },
+    {
+      "route": "pour",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.99981782631352,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.1143452445730342,
+          "extension": 0.6504402387841197
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.08535731915197335,
+          "extension": 0.6109668397124719
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.63704517695903,
+          "extension": 0.9917007976371445
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 2.2082405532837206,
+          "extension": 0.9860637441789123
+        }
+      ]
+    },
+    {
+      "route": "arch leg",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.99999901168626,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.27370773456449493,
+          "extension": 0.488361267548325
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.368385173134054,
+          "extension": 0.4966785473734599
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.454835125067674,
+          "extension": 0.9922596942405129
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.9629963833337007,
+          "extension": 0.9902914118351314
+        }
+      ]
+    },
+    {
+      "route": "arch leg",
+      "stage": "move 0 to 4",
+      "fallen": false,
+      "hipDepthCm": 67.32050039696583,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 4,
+          "latched": true,
+          "missCm": 0.22179784574541508,
+          "extension": 0.7771737735654477
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.043900772460614426,
+          "extension": 0.9681160710829874
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.3517108899813319,
+          "extension": 0.8903782672265479
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.35086349141533435,
+          "extension": 0.7601383048585634
+        }
+      ]
+    },
+    {
+      "route": "arch leg",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99999212423163,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 1.3524089794200187,
+          "extension": 0.6148424628090735
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.08649505086786172,
+          "extension": 0.5472628308378266
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.0499849212899093,
+          "extension": 0.9819035035746656
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.5244002997428894,
+          "extension": 0.9880353206964835
+        }
+      ]
+    },
+    {
+      "route": "arch leg",
+      "stage": "move 2 to 3",
+      "fallen": false,
+      "hipDepthCm": 43.360357169826614,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.1299929860302477,
+          "extension": 0.6676380192529336
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.11057614513032998,
+          "extension": 0.6588014172469673
+        },
+        {
+          "limb": 2,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.7098547154150399,
+          "extension": 0.8114150337179348
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.2395334094007372,
+          "extension": 0.4933206399312462
+        }
+      ]
+    },
+    {
+      "route": "arch leg",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.9995408989978,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 1.4453471076399553,
+          "extension": 0.6315341799787134
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.16867954149730557,
+          "extension": 0.5601842324472527
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.8565813258646584,
+          "extension": 0.9893218562478799
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 1.9009894963136025,
+          "extension": 0.9905161782981944
+        }
+      ]
+    },
+    {
+      "route": "arch cave",
+      "stage": "start",
+      "fallen": false,
+      "hipDepthCm": 61.999994907916616,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.0012342724631722905,
+          "extension": 0.5533335044865539
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.0011403514720564473,
+          "extension": 0.5358984676514273
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 0.6929216954506794,
+          "extension": 0.9884111431546125
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 2.426149479990094,
+          "extension": 0.986957090802753
+        }
+      ]
+    },
+    {
+      "route": "arch cave",
+      "stage": "move 0 to 5",
+      "fallen": false,
+      "hipDepthCm": 73.5762041489078,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 5,
+          "latched": true,
+          "missCm": 0.37685530815309665,
+          "extension": 0.8267024805923405
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 9.260213202987236,
+          "extension": 0.9977081804567887
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 11.308371296850966,
+          "extension": 0.9713421578041583
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 0.6537725718593158,
+          "extension": 0.7914081653281224
+        }
+      ]
+    },
+    {
+      "route": "arch cave",
+      "stage": "return 0",
+      "fallen": false,
+      "hipDepthCm": 61.99996385123309,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.23169560559233487,
+          "extension": 0.750567214649568
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.18919678182635488,
+          "extension": 0.6226094111518686
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 2.0764424014928387,
+          "extension": 0.9965256826477162
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 2.8068273261895507,
+          "extension": 0.9905210019997018
+        }
+      ]
+    },
+    {
+      "route": "arch cave",
+      "stage": "move 2 to 7",
+      "fallen": false,
+      "hipDepthCm": 44.544629648452464,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.336756815662132,
+          "extension": 0.7233353477986553
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.009557974678518495,
+          "extension": 0.6976305583787719
+        },
+        {
+          "limb": 2,
+          "hold": 7,
+          "latched": true,
+          "missCm": 0.23060239521567535,
+          "extension": 0.9952471517885207
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 2.249657360921784,
+          "extension": 0.8460094591111951
+        }
+      ]
+    },
+    {
+      "route": "arch cave",
+      "stage": "return 2",
+      "fallen": false,
+      "hipDepthCm": 61.999795385266445,
+      "contacts": [
+        {
+          "limb": 0,
+          "hold": 0,
+          "latched": true,
+          "missCm": 0.13183746736209542,
+          "extension": 0.7331530367264404
+        },
+        {
+          "limb": 1,
+          "hold": 1,
+          "latched": true,
+          "missCm": 0.12372191128376067,
+          "extension": 0.6354381063668479
+        },
+        {
+          "limb": 2,
+          "hold": 2,
+          "latched": true,
+          "missCm": 1.6397930894269386,
+          "extension": 0.9963564616522572
+        },
+        {
+          "limb": 3,
+          "hold": 3,
+          "latched": true,
+          "missCm": 2.5900034654166437,
+          "extension": 0.9904867566303325
+        }
+      ]
+    }
+  ],
+  "failures": [
+    {
+      "route": "slab dance",
+      "stage": "return 2",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.5000848075136233,
+      "extension": 0.9953372526072043
+    },
+    {
+      "route": "the roof",
+      "stage": "move 0 to 5",
+      "limb": 1,
+      "hold": 1,
+      "latched": true,
+      "missCm": 10.13151959475993,
+      "extension": 0.9970763374927438
+    },
+    {
+      "route": "the roof",
+      "stage": "return 2",
+      "limb": 0,
+      "hold": 0,
+      "latched": true,
+      "missCm": 2.3546334185609457,
+      "extension": 0.7739697863332337
+    },
+    {
+      "route": "wave",
+      "stage": "start",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.0010929423720687,
+      "extension": 0.9844604242609106
+    },
+    {
+      "route": "wave",
+      "stage": "move 0 to 5",
+      "limb": 1,
+      "hold": 1,
+      "latched": true,
+      "missCm": 6.33309209093962,
+      "extension": 0.9974036740967588
+    },
+    {
+      "route": "wave",
+      "stage": "return 0",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.896043437954317,
+      "extension": 0.996966122221221
+    },
+    {
+      "route": "wave",
+      "stage": "move 2 to 7",
+      "limb": 2,
+      "hold": 7,
+      "latched": true,
+      "missCm": 5.850070135304768,
+      "extension": 0.9769156569641612
+    },
+    {
+      "route": "lean",
+      "stage": "move 0 to 5",
+      "limb": 1,
+      "hold": 1,
+      "latched": true,
+      "missCm": 5.581578699687986,
+      "extension": 0.9965583041836975
+    },
+    {
+      "route": "lean",
+      "stage": "return 0",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.609812657998509,
+      "extension": 0.9961930921597952
+    },
+    {
+      "route": "lean",
+      "stage": "return 0",
+      "limb": 3,
+      "hold": 3,
+      "latched": true,
+      "missCm": 2.2261282446552904,
+      "extension": 0.990523102050102
+    },
+    {
+      "route": "lean",
+      "stage": "return 2",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.133235739865734,
+      "extension": 0.9866283451556868
+    },
+    {
+      "route": "pour",
+      "stage": "move 0 to 5",
+      "limb": 1,
+      "hold": 1,
+      "latched": true,
+      "missCm": 3.5328574507901984,
+      "extension": 0.9988327764504918
+    },
+    {
+      "route": "pour",
+      "stage": "return 0",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.4306814462962145,
+      "extension": 0.9914605251779692
+    },
+    {
+      "route": "pour",
+      "stage": "return 2",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.63704517695903,
+      "extension": 0.9917007976371445
+    },
+    {
+      "route": "pour",
+      "stage": "return 2",
+      "limb": 3,
+      "hold": 3,
+      "latched": true,
+      "missCm": 2.2082405532837206,
+      "extension": 0.9860637441789123
+    },
+    {
+      "route": "arch cave",
+      "stage": "start",
+      "limb": 3,
+      "hold": 3,
+      "latched": true,
+      "missCm": 2.426149479990094,
+      "extension": 0.986957090802753
+    },
+    {
+      "route": "arch cave",
+      "stage": "move 0 to 5",
+      "limb": 1,
+      "hold": 1,
+      "latched": true,
+      "missCm": 9.260213202987236,
+      "extension": 0.9977081804567887
+    },
+    {
+      "route": "arch cave",
+      "stage": "move 0 to 5",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 11.308371296850966,
+      "extension": 0.9713421578041583
+    },
+    {
+      "route": "arch cave",
+      "stage": "return 0",
+      "limb": 2,
+      "hold": 2,
+      "latched": true,
+      "missCm": 2.0764424014928387,
+      "extension": 0.9965256826477162
+    },
+    {
+      "route": "arch cave",
+      "stage": "return 0",
+      "limb": 3,
+      "hold": 3,
+      "latched": true,
+      "missCm": 2.8068273261895507,
+      "extension": 0.9905210019997018
+    },
+    {
+      "route": "arch cave",
+      "stage": "move 2 to 7",
+      "limb": 3,
+      "hold": 3,
+      "latched": true,
+      "missCm": 2.249657360921784,
+      "extension": 0.8460094591111951
+    },
+    {
+      "route": "arch cave",
+      "stage": "return 2",
+      "limb": 3,
+      "hold": 3,
+      "latched": true,
+      "missCm": 2.5900034654166437,
+      "extension": 0.9904867566303325
+    }
+  ]
+}

@@ -126,7 +126,7 @@ FHumanGoals FHumanGoals::FromSim(const FClimbSim& Sim,float Gap,float Inside,flo
   {
    if(Contact && Hold)Result.ShoeSurfaces[L]=Placed(Hold->ShoeContact);
    else if(Contact && Sim.Smeared[L])Result.ShoeSurfaces[L]=At-TipPanel.Out*3;
-   const FVector Shoe=Result.ShoeSurfaces[L].Get(At);
+   const FVector Shoe=Result.ShoeSurfaces[L].Get(Hold?FMath::Lerp(At,Placed(Hold->ShoeContact).Get(At),Approach):At);
    Result.Ends[L]=Shoe+TipPanel.Out*19+TipPanel.Up*4.7;
    Result.Along[L]=(Shoe-Result.Ends[L]).GetSafeNormal();
   }

@@ -451,11 +451,21 @@ function screenOf(point) {
 	return { x: rect.left + (v.x + 1) / 2 * rect.width, y: rect.top + (1 - v.y) / 2 * rect.height, front: v.z < 1 };
 }
 
+// Pick the rendered contact, not its flattened simulation proxy. Their screen
+// positions differ on angled walls and whenever the pelvis fits the native rig.
+function screenOfLimb(limb) {
+ const name=(limb%2?'Left':'Right')+(limb<2?'SoleContact':'HandMiddle1');
+ const bone=skin?.root.visible?skin.bone[name]:null;
+ if(!bone)return screenOf(sim.tips[limb]);
+ const p=bone.getWorldPosition(new THREE.Vector3()).project(camera),rect=canvas.getBoundingClientRect();
+ return {x:rect.left+(p.x+1)*rect.width/2,y:rect.top+(1-p.y)*rect.height/2,front:p.z>=-1&&p.z<=1};
+}
+
 // the hand or foot under the pointer, by screen distance so fingertips on a phone can find it
 function pick(px, py) {
 	let best = -1, closest = touchy ? 60 : 44;
 	for (let i = 0; i < 4; i++) {
-		const s = screenOf(sim.tips[i]);
+		const s = screenOfLimb(i);
 		const gap = Math.hypot(s.x - px, s.y - py);
 		if (s.front && gap < closest) { closest = gap; best = i; }
 	}
@@ -603,6 +613,7 @@ function mount() {
 	sim.route = walker.near;
 	sim.restart();
 	climber.reset();
+ skin?.reset();
 	walker.want = [false, false];
 	walker.lift = [0, 0];
 	mode = 'mount';
@@ -668,6 +679,7 @@ function retry() {
 	if (mode !== 'climb' && mode !== 'fall') return;
 	sim.restart();
 	climber.reset();
+ skin?.reset();
 	ragdoll = null;
 	mode = 'climb';
 	limb = -1;
@@ -1202,6 +1214,6 @@ else { walker.near = -1; pose = walkerPose(); }
 $('loading').remove();
 requestAnimationFrame(frame);
 // a handle for poking at the game from the console
-window.rougarou = { sim, routes, climber, THREE, renderer, scene, camera, three, fp, sendLimb, get spots() { return spots; }, walker, world, ui, editor, recorder, audio, screenOf, place, lift, pullOn, jumpDown, visit, retry, goTo, editRoute, finishEdit, get mode() { return mode; }, get pose() { return pose; }, view: () => ({ camYaw, camPitch }), aim: (yaw, pitch) => { camYaw = yaw; camPitch = pitch; },
+window.rougarou = { sim, routes, climber, THREE, renderer, scene, camera, three, fp, sendLimb, get spots() { return spots; }, walker, world, ui, editor, recorder, audio, screenOf, screenOfLimb, pick, place, lift, pullOn, jumpDown, visit, retry, goTo, editRoute, finishEdit, get mode() { return mode; }, get pose() { return pose; }, view: () => ({ camYaw, camPitch }), aim: (yaw, pitch) => { camYaw = yaw; camPitch = pitch; },
 	// run the game forward without waiting on the browser's frame clock
 	tick: (seconds) => { for (let t = 0; t < seconds; t += 1 / 60) update(1 / 60); } };

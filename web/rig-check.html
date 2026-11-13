@@ -13,7 +13,7 @@ try {
  const climber=new Climber(scene),sim=new Sim(routes),rows=[];
  const query=new URLSearchParams(location.search);
  for(const crimp of query.has('all')?[false,true]:[query.has('crimp')])for(let r=0;r<routes.length;r++){
-  sim.route=r;sim.restart();climber.reset();skin.motion.reset();
+  sim.route=r;sim.restart();climber.reset();skin.reset();
   for(let i=0;i<30;i++){sim.step(1/60);skin.pose(climber.climbPose(sim,-1,1/60),1/60);}
   let crimpMove=null;
   if(crimp){

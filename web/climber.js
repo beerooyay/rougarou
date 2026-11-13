@@ -387,7 +387,11 @@ export class Climber {
     }
 			} else {
 				const hold=sim.holds()[sim.grips[limb]];
-    if(held && hold?.surface)contact=hold.surface.foot(face.map(sim.spot(limb)).sub(face.map(hold.point)));
+    if(hold?.surface){
+     const landing=hold.surface.foot(face.map(sim.spot(limb)).sub(face.map(hold.point)));
+     const approach=held?1:1-smoothStep(.025,.22,tip.dist(sim.spot(limb)));
+     contact=contact.lerp(landing,approach);
+    }
     // a climbing shoe: toe on the hold, heel out from the wall and a little low, the ankle above the heel
 				const ankle = contact.add(panel.out.mul(14)).add(panel.up.mul(7));
 				const heel = contact.add(panel.out.mul(19)).sub(panel.up.mul(1.5));
@@ -427,6 +431,7 @@ export class Climber {
 			if (limb === selected) marker = contact;
 		}
 		const posed = solve({ roots, up, back: frame.out, head, look: this.look, limbs, marker });
+  posed.wallPoint=at(sim.position,0);
 		// elbows and knees stay out of the wall, so the arms and legs never sink into it
 		posed.limbs.forEach((l, i) => { if (l.bend) l.bend = awayFromWall(face, l.bend, i < 2 ? 11 : 7.5); });
 		return posed;

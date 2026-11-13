@@ -1,30 +1,26 @@
-import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import {fileURLToPath} from 'node:url';
 import * as T from 'three';
-import {Skin} from '../../web/skin.js';
+import {rig} from './fixture.mjs';
 import {Climber} from '../../web/climber.js';
-import {Sim,Vec2} from '../../web/sim.js';
+import {Sim,Vec2,Vec3} from '../../web/sim.js';
 import {clampRel} from '../../web/human-motion.js';
 import {problems,routeHolds,buildGym} from '../../web/gym.js';
 import {sceneClearance} from '../../web/hold-contact.js';
-const root=fileURLToPath(new URL('../../web/',import.meta.url));
-function rig(){const data=fs.readFileSync(root+'models/blaize-player.glb'),g=JSON.parse(data.subarray(20,20+data.readUInt32LE(12))),joints=new Set(g.skins.flatMap(s=>s.joints));const nodes=g.nodes.map((n,i)=>{const b=joints.has(i)?new T.Bone():new T.Object3D();b.name=n.name||'';if(n.translation)b.position.fromArray(n.translation);if(n.rotation)b.quaternion.fromArray(n.rotation);if(n.scale)b.scale.fromArray(n.scale);return b;});g.nodes.forEach((n,i)=>n.children?.forEach(c=>nodes[i].add(nodes[c])));const scene=new T.Scene(),model=new T.Group();g.scenes[g.scene||0].nodes.forEach(i=>model.add(nodes[i]));return {scene,skin:new Skin({scene:model},scene,JSON.parse(fs.readFileSync(root+'human-motion.json')))};}
 const routes=problems();routes.forEach(routeHolds);
 for(const mode of ['frozen','release','live']){
- const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);let frozenPose=null,previous=null,max=0,culprit='',jump=0,late=0;
+ const {scene,skin}=rig(),c=new Climber(scene),sim=new Sim(routes);let frozenPose=null,previous=null,max=0,culprit='',jump=0,late=0,lateCulprit='';
  for(let f=0;f<300;f++){
   if(mode==='release'&&f===90)sim.drop(1);
   if(mode!=='frozen')sim.step(1/60);
   const pose=mode==='frozen'&&frozenPose?frozenPose:c.climbPose(sim,-1,1/60);if(mode==='frozen'&&f===60)frozenPose=pose;skin.pose(pose,1/60);
   skin.root.updateMatrixWorld(true);
   const now=skin.order.map(b=>({q:b.quaternion.clone(),p:b.getWorldPosition(new T.Vector3())}));
-  if(previous&&f>60)for(let i=0;i<now.length;i++){if(/Hem|Cloth|Shirt/.test(skin.order[i].name))continue;const a=previous[i].q.angleTo(now[i].q)*180/Math.PI;if(f>240)late=Math.max(late,a);if(a>max){max=a;culprit=skin.order[i].name+' frame '+f;}jump=Math.max(jump,previous[i].p.distanceTo(now[i].p)*100);}
+  if(previous&&f>60)for(let i=0;i<now.length;i++){if(/Hem|Cloth|Shirt/.test(skin.order[i].name))continue;const a=previous[i].q.angleTo(now[i].q)*180/Math.PI;if(f>240&&a>late){late=a;lateCulprit=skin.order[i].name;}if(a>max){max=a;culprit=skin.order[i].name+' frame '+f;}jump=Math.max(jump,previous[i].p.distanceTo(now[i].p)*100);}
   previous=now;
  }
  assert(max<5.731, `${mode}: joint snapped ${max} degrees (${culprit})`);
  assert(jump<6, `${mode}: landmark jumped ${jump} cm`);
- if(mode==='frozen')assert(late<1, `stationary rig keeps twitching: ${late} degrees`);
+ if(mode==='frozen')assert(late<1, `stationary rig keeps twitching: ${late} degrees (${lateCulprit})`);
  const before=skin.order.map(b=>b.quaternion.clone());
  skin.pose(frozenPose||c.climbPose(sim,-1,0),0);
  skin.order.forEach((b,i)=>assert(before[i].equals(b.quaternion), `paused ${b.name} moved`));
@@ -72,7 +68,8 @@ for(const limb of [0,1,2,3]){
    const knee=skin.bone[side+'Leg'].getWorldPosition(new T.Vector3()),hip=skin.bone[side+'UpLeg'].getWorldPosition(new T.Vector3());
    worstInward=Math.max(worstInward,-knee.sub(hip).dot(axis)*sign*100);
   }
-  assert(skin.bodyOffset.dot(new T.Vector3(-pose.back.y,pose.back.z,pose.back.x))>=-1e-7,'contact correction cancelled hip clearance');
+  const wall=new T.Vector3(-pose.wallPoint.y/100,pose.wallPoint.z/100,pose.wallPoint.x/100);
+  assert(skin.rawPelvis.clone().add(skin.bodyOffset).sub(wall).dot(new T.Vector3(-pose.back.y,pose.back.z,pose.back.x))>=.28-1e-7,'pelvis lost required wall clearance');
   for(const [b,bound] of skin.motion.bounds){
   const rel=skin.motion.neutral.get(b).clone().invert().multiply(b.quaternion);
   violation=Math.max(violation,clampRel(rel,skin.motion.frames.get(b),bound).q.angleTo(rel)*180/Math.PI);
@@ -88,7 +85,7 @@ for(const limb of [0,1,2,3]){
   if(limb<2){const target=pose.limbs[limb].foot.toe;
    const shoe=skin.bone[(limb%2?'Left':'Right')+'SoleContact'].getWorldPosition(new T.Vector3());
    const error=shoe.distanceTo(new T.Vector3(-target.y/100,target.z/100,target.x/100))*100;
-   errors.push(error);assert(error<6,`high-step shoe missed by ${error} cm`);
+   errors.push(error);assert(error<2,`high-step shoe missed by ${error} cm`);
   }
  }
  assert(violation<.1,`joint escaped limits by ${violation} degrees`);
@@ -155,4 +152,15 @@ for(const limb of [0,1,2,3]){
   assert(sceneClearance(surface.world(point),[],[hold])<0,'non-selected hold penetration was missed');
  }
  console.log({collisionCoverage:'bare wall, route holds, decorative holds'});
+}
+
+// A fingertip below a panel seam must not collide with the next panel's
+// imaginary downward extension. Both real strips remain solid.
+{
+ const k=Math.SQRT1_2,panels=[
+  {origin:new Vec3(),up:new Vec3(0,0,1),out:new Vec3(1,0,0),length:1.8},
+  {origin:new Vec3(0,0,180),up:new Vec3(-k,0,k),out:new Vec3(k,0,k),length:2}
+ ];
+ assert(Math.abs(sceneClearance(new Vec3(7,0,170),panels,[])-7)<1e-6,'phantom panel extension blocks a clear finger');
+ assert(sceneClearance(new Vec3(-1,0,170),panels,[])<0,'actual panel penetration escaped the check');
 }

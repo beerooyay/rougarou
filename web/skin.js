@@ -88,9 +88,15 @@ export class Skin {
 		this.refSide = at('LeftArm').p.clone().sub(at('RightArm').p).normalize();
 		this.refPelvis = at('LeftUpLeg').p.clone().add(at('RightUpLeg').p).divideScalar(2);
 		this.motion=new HumanMotion(this,profile);
-		this.chainTargets=new Map();this.swivels=[0,0,0,0];this.bodyOffset=new THREE.Vector3();
+		this.chainTargets=new Map();this.swivels=[0,0,0,0];this.bodyOffset=new THREE.Vector3();this.bodyRotation=new THREE.Vector3();
 		this.garments=new GarmentPhysics();
 	}
+
+ reset() {
+  this.motion.reset();this.chainTargets.clear();this.swivels=[0,0,0,0];
+  this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.garments.reset();
+  this.rawPelvis=null;this.lastPelvis=null;
+ }
 
 	// where a bone currently lands: a wanted world transform if set, else forward kinematics through posed parents
 	worldOf(b) {
@@ -217,20 +223,44 @@ export class Skin {
   }
   applyThumb(best);
   settle(thumb);
+
+ }
+
+ limbTarget(pose,limb,back,start,walking=false) {
+  const part=pose.limbs[limb],leg=limb<2,bot=this.bone[End[limb]],tip=this.bone[Tip[limb]];
+  const top=this.bone[Upper[limb]],midB=this.bone[Lower[limb]];
+  const one=this.restWorld.get(top).p.distanceTo(this.restWorld.get(midB).p),two=this.restWorld.get(midB).p.distanceTo(this.restWorld.get(bot).p);
+  // Fit the CC4 shoe to the hold at its toe, using its actual ankle pivot.
+  let end = leg ? three(part.foot.toe).addScaledVector(back,.19).addScaledVector(three(part.foot.up),.047) : three(part.end);
+   if(walking && !leg && part.hand.grip==='free')end=start.clone().add(three(part.end.sub(pose.roots[limb])).clampLength(0,(one+two)*.97));
+   if(!leg && part.hand.contact) {
+    const rest=this.restWorld.get(bot),axis=this.restWorld.get(tip).p.clone().sub(rest.p);
+    const q=frame(three(part.hand.over),three(part.hand.out).negate()).multiply(frame(axis,this.refUp.clone().negate()).invert()).multiply(rest.q);
+    end=three(part.hand.contact).sub(axis.applyQuaternion(rest.q.clone().invert()).applyQuaternion(q));
+   }
+  let shoeRotation=null;
+   if(leg){
+    const soleBone=this.bone[(limb===0?'Right':'Left')+'SoleContact'];
+    const rest=this.restWorld.get(bot);
+    const soleOffset=soleBone?this.restWorld.get(soleBone).p.clone().sub(rest.p):this.motion.front.clone().multiplyScalar(.19).addScaledVector(this.refUp,-.047);
+    const wanted=three(part.foot.toe.sub(part.foot.heel)).normalize();
+    shoeRotation=frame(wanted,three(part.foot.up)).multiply(frame(this.motion.front,this.refUp).invert()).multiply(rest.q);
+    end=three(part.foot.toe).sub(soleOffset.applyQuaternion(rest.q.clone().invert()).applyQuaternion(shoeRotation));
+   }
+  return {end,shoeRotation};
  }
 
 	pose(pose,delta=1/60,walking=false) {
   if(delta<=0 && this.motion.previous.size && this.wasWalking===walking)return;
   this.motion.step=delta;
-		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.wasWalking=walking;}
+		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.wasWalking=walking;}
 		this.world.clear(); this.wants.clear();
 		const pelvis = three(pose.roots[0].add(pose.roots[1]).mul(0.5));
 		const chest = three(pose.roots[2].add(pose.roots[3]).mul(0.5));
-  if(this.rawPelvis&&this.rawPelvis.distanceTo(pelvis)>1)this.bodyOffset.set(0,0,0);
+  if(this.rawPelvis&&this.rawPelvis.distanceTo(pelvis)>1){this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);}
   this.rawPelvis=pelvis.clone();
-  const wallOut=unit(pose.back),lostClearance=this.bodyOffset.dot(wallOut);
-  if(lostClearance<0)this.bodyOffset.addScaledVector(wallOut,-lostClearance);
   if(!walking){pelvis.add(this.bodyOffset);chest.add(this.bodyOffset);}
+
 		const up = chest.clone().sub(pelvis).normalize();
 		const side = three(pose.roots[3].sub(pose.roots[2])).normalize();
 		const back = unit(pose.back);
@@ -238,6 +268,10 @@ export class Skin {
 		const from = frame(this.refSide, this.refUp);
 		const to = frame(side, up);
 		const turn = to.clone().multiply(from.clone().invert());
+  if(!walking && this.bodyRotation.lengthSq()>1e-12){
+   const rotation=new THREE.Quaternion().setFromAxisAngle(this.bodyRotation.clone().normalize(),this.bodyRotation.length());
+   turn.premultiply(rotation);up.applyQuaternion(rotation);side.applyQuaternion(rotation);
+  }
 		const hips = this.bone['Hips'], restHips = this.restWorld.get(hips);
 		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1){this.motion.reset();this.chainTargets.clear();}
 		this.lastPelvis=pelvis.clone();
@@ -272,23 +306,7 @@ export class Skin {
 			const start = this.worldOf(top).p.clone();
 			const one = this.restWorld.get(top).p.distanceTo(this.restWorld.get(midB).p);
 			const two = this.restWorld.get(midB).p.distanceTo(this.restWorld.get(bot).p);
-			// Fit the CC4 shoe to the hold at its toe, using its actual ankle pivot.
-			let end = leg ? three(part.foot.toe).addScaledVector(back,.19).addScaledVector(three(part.foot.up),.047) : three(part.end);
-   if(walking && !leg && part.hand.grip==='free')end=start.clone().add(three(part.end.sub(pose.roots[limb])).clampLength(0,(one+two)*.97));
-   if(!leg && part.hand.contact) {
-    const rest=this.restWorld.get(bot),axis=this.restWorld.get(tip).p.clone().sub(rest.p);
-    const q=frame(three(part.hand.over),three(part.hand.out).negate()).multiply(frame(axis,this.refUp.clone().negate()).invert()).multiply(rest.q);
-    end=three(part.hand.contact).sub(axis.applyQuaternion(rest.q.clone().invert()).applyQuaternion(q));
-   }
-			let shoeRotation=null;
-   if(leg){
-    const soleBone=this.bone[(limb===0?'Right':'Left')+'SoleContact'];
-    const rest=this.restWorld.get(bot);
-    const soleOffset=soleBone?this.restWorld.get(soleBone).p.clone().sub(rest.p):this.motion.front.clone().multiplyScalar(.19).addScaledVector(this.refUp,-.047);
-    const wanted=three(part.foot.toe.sub(part.foot.heel)).normalize();
-    shoeRotation=frame(wanted,three(part.foot.up)).multiply(frame(this.motion.front,this.refUp).invert()).multiply(rest.q);
-    end=three(part.foot.toe).sub(soleOffset.applyQuaternion(rest.q.clone().invert()).applyQuaternion(shoeRotation));
-   }
+   const {end,shoeRotation}=this.limbTarget(pose,limb,back,start,walking);
    const height = Math.min(Math.max((end.clone().sub(start).dot(up) * 100 + 20) / 40, 0), 1);
 			const hint = leg ? start.clone().add(knee(side, up, back, sideOf(limb), height).multiplyScalar(1))
 				: start.clone().add(three(part.bend.sub(pose.roots[limb])));
@@ -372,14 +390,23 @@ export class Skin {
      // A gentle facing preference allows edging without locking the leg.
      return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+20*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
-    let cost=evaluate(locals);
-    if(joints.every(b=>this.motion.previous.has(b))){const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);if(score<=cost){locals=previous;cost=score;}evaluate(locals);}
+    let cost=evaluate(locals),converged=false;
+    if(joints.every(b=>this.motion.previous.has(b))){
+     const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);
+     let safe=true;
+     if(!leg && part.hand.clearance)for(const digit of ['Thumb','Index','Middle','Pinky']){
+      const p=this.worldOf(this.bone[(limb===2?'Right':'Left')+'Hand'+digit+'1']).p;
+      if(part.hand.clearance(new Vec3(p.z*100,-p.x*100,p.y*100))<1.4)safe=false;
+     }
+     converged=safe && this.worldOf(landmark).p.distanceTo(wantedContact)<.008 && this.worldOf(bot).q.angleTo(desiredBot)<.9;
+     if(converged || score<=cost){locals=previous;cost=score;}evaluate(locals);
+    }
 
-    if(joints.every(b=>this.chainTargets.has(b))){
+    if(!converged && joints.every(b=>this.chainTargets.has(b))){
      const warm=joints.map(b=>this.chainTargets.get(b).clone()),score=evaluate(warm);
      if(score<cost){locals=warm;cost=score;}evaluate(locals);
     }
-    for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
+    if(!converged)for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
      let chosen=locals;
      for(const sign of [-1,1]){
       const candidate=locals.map(q=>q.clone());candidate[j].multiply(new THREE.Quaternion().setFromAxisAngle(axis,sign*degrees*Math.PI/180));
@@ -397,26 +424,72 @@ export class Skin {
     const q=this.motion.limit(b,parent.q.clone().multiply(localTargets[j]),parent.q);
     this.wants.set(b,{p:this.worldOf(b).p.clone(),q});this.world.clear();
    });
+   // Filtering legal joint targets changes FK contacts. Refine the bounded
+   // rendered step, as HumanRig::Solve does, without spending a second motion
+   // budget or rotating a knee through the wall to meet a target.
+   if(leg && landmark && wantedContact && part.foot.held){
+    const contactCost=()=>{
+     const middle=this.worldOf(midB).p;
+     const depth=middle.clone().sub(wallPoint).dot(out);
+     const inward=leg?Math.max(0,-.025-middle.clone().sub(start).dot(side)*sideOf(limb)):0;
+     return this.worldOf(landmark).p.distanceToSquared(wantedContact)+100*Math.max(0,.06-depth)**2+100*inward**2;
+    };
+    const joints=[top,midB,bot];
+    let locals=joints.map(b=>this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q));
+    const apply=values=>{
+     let legal=true;
+     joints.forEach((b,j)=>{
+      const parent=this.worldOf(b.parent),q=this.motion.limit(b,parent.q.clone().multiply(values[j]),parent.q,false);
+      const local=parent.q.clone().invert().multiply(q),previous=this.motion.previous.get(b);
+      if(previous && previous.angleTo(local)>(leg?2.5:6)*Math.min(delta,.05)+1e-6)legal=false;
+      this.wants.set(b,{p:this.worldOf(b).p.clone(),q});this.world.clear();
+     });
+     return legal?contactCost():Infinity;
+    };
+    let cost=contactCost();
+    if(cost>.0001)for(const step of [.012,.006,.003])for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
+     let chosen=locals;
+     for(const sign of [-1,1]){
+      const candidate=locals.map(q=>q.clone());candidate[j].multiply(new THREE.Quaternion().setFromAxisAngle(axis,sign*step));
+      const value=apply(candidate);if(value<cost-1e-8){cost=value;chosen=candidate;}
+     }
+     locals=chosen;apply(locals);
+    }
+   }
    if(!leg)this.fitFingers(limb===2?'Right':'Left',part.hand);
 
 		}
-  if(!walking && delta>0){
-   const correction=new THREE.Vector3();let weight=0;
+
+  if(!walking && pose.wallPoint && delta>0){
+   const correction=new THREE.Vector3(),torque=new THREE.Vector3(),relax=new THREE.Vector3();let weight=0,inertia=0,maxMiss=0,arms=0;
    for(let l=0;l<4;l++){
     const p=pose.limbs[l],name=l%2===0?'Right':'Left';
-    if(l>=2&&!p.hand.held || l<2&&p.foot.held===false)continue;
+    if(!(l<2?p.foot.held:p.hand.held))continue;
     const bone=this.bone[name+(l<2?'SoleContact':'HandMiddle1')];
     if(!bone)continue;
-    const target=l<2?three(p.foot.toe):three(p.hand.contact),w=2;
-    correction.addScaledVector(target.sub(this.worldOf(bone).p),w);weight+=w;
+    const target=l<2?three(p.foot.toe):three(p.hand.contact);
+    const error=target.sub(this.worldOf(bone).p),w=2*(1+Math.min(9,error.lengthSq()/.0001)),lever=this.worldOf(this.bone[Upper[l]]).p.clone().sub(pelvis);
+    correction.addScaledVector(error,w);weight+=w;maxMiss=Math.max(maxMiss,error.length());
+    torque.addScaledVector(lever.clone().cross(error),w);inertia+=w*lever.lengthSq();
+    if(l>=2){
+     const top=this.bone[Upper[l]],mid=this.bone[Lower[l]],end=this.bone[End[l]],root=this.worldOf(top).p;
+     const length=this.restWorld.get(top).p.distanceTo(this.restWorld.get(mid).p)+this.restWorld.get(mid).p.distanceTo(this.restWorld.get(end).p);
+     const reach=this.worldOf(end).p.clone().sub(root);
+     if(reach.dot(up)>0){relax.addScaledVector(reach.clone().normalize(),-Math.max(0,length*.92-reach.length()));arms++;}
+    }
    }
    if(weight){
     correction.divideScalar(weight);
-    // Contact fitting may shift weight along the wall, but cannot silently
-    // cancel the pelvis clearance selected by the climbing pose.
-    const inward=correction.dot(back);
-    if(inward<0)correction.addScaledVector(back,-inward);
-    if(correction.length()>.005)this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.06*delta)).clampLength(0,.12);
+    // Like native SupportEffort: prefer an economical supported arm when the
+    // hand is overhead. Contact accuracy has priority over this preference.
+    const relaxing=arms>0 && maxMiss<.015;
+    if(relaxing)correction.addScaledVector(relax,.12/arms);
+    if(inertia>.001 && maxMiss>.01)this.bodyRotation.add(torque.multiplyScalar(8*delta/inertia).clampLength(0,.2*delta)).clampLength(0,.35);
+    if(correction.length()>.002 && (maxMiss>.01 || relaxing))this.bodyOffset.add(correction.multiplyScalar(Math.min(1,delta*8)).clampLength(0,.20*delta)).clampLength(0,.32);
+    if(pose.wallPoint){
+     const clearance=this.rawPelvis.clone().add(this.bodyOffset).sub(three(pose.wallPoint)).dot(back);
+     if(clearance<.28)this.bodyOffset.addScaledVector(back,.28-clearance);
+    }
    }
   }
 		// write local transforms: driven bones use their wanted world transform, the rest keep bind locals
