@@ -21,9 +21,6 @@ const frame = (x, y) => {
 	const z = x.clone().cross(y);
 	return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
 };
-// where the knee should point: out to the side low, folding upward on a high step, never back into the wall
-const knee = (side, up, out, sign, height) =>
-	side.clone().multiplyScalar(sign * (1 - 0.7 * height)).add(up.clone().multiplyScalar(0.2 + 0.8 * height)).sub(out.clone().multiplyScalar(0.25));
 
 function solve(start, target, hint, upper, lower) {
 	upper = Math.max(upper, 0.01); lower = Math.max(lower, 0.01);
@@ -95,7 +92,7 @@ export class Skin {
  reset() {
   this.motion.reset();this.chainTargets.clear();this.swivels=[0,0,0,0];
   this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.garments.reset();
-  this.rawPelvis=null;this.lastPelvis=null;this.pelvisOpening=0;
+  this.rawPelvis=null;this.lastPelvis=null;this.pelvisOpening=0;this.supportedFor=0;
  }
 
 	// where a bone currently lands: a wanted world transform if set, else forward kinematics through posed parents
@@ -253,13 +250,20 @@ export class Skin {
 	pose(pose,delta=1/60,walking=false) {
   if(delta<=0 && this.motion.previous.size && this.wasWalking===walking)return;
   this.motion.step=delta;
-		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.pelvisOpening=0;this.wasWalking=walking;}
+		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.pelvisOpening=0;this.supportedFor=0;this.wasWalking=walking;}
 		this.world.clear(); this.wants.clear();
 		const pelvis = three(pose.roots[0].add(pose.roots[1]).mul(0.5));
 		const chest = three(pose.roots[2].add(pose.roots[3]).mul(0.5));
   if(this.rawPelvis&&this.rawPelvis.distanceTo(pelvis)>1){this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);}
   this.rawPelvis=pelvis.clone();
-  if(!walking){pelvis.add(this.bodyOffset);chest.add(this.bodyOffset);}
+  if(walking && this.bone.RightSoleContact){
+   // The procedural walker was authored for longer legs. Use the CC4 leg
+   // span and its ankle-to-sole height to keep the standing sole on the mat.
+   const [hip,knee,ankle,sole]=['RightUpLeg','RightLeg','RightFoot','RightSoleContact'].map(n=>this.restWorld.get(this.bone[n]).p);
+   const height=hip.distanceTo(knee)+knee.distanceTo(ankle)+ankle.clone().sub(sole).dot(this.refUp);
+   const adjustment=Math.min(0,height-.955);
+   pelvis.y+=adjustment;chest.y+=adjustment;
+  }else if(!walking){pelvis.add(this.bodyOffset);chest.add(this.bodyOffset);}
 
 		const up = chest.clone().sub(pelvis).normalize();
 		const side = three(pose.roots[3].sub(pose.roots[2])).normalize();
@@ -286,7 +290,13 @@ export class Skin {
   const highStep=Math.min(1,Math.max(0,(Math.max(...ankles)-pelvis.y+.33)/.12));
   const stagger=Math.min(1,Math.max(0,(split-.18)/.16));
   const planted=pose.limbs[0].foot.held && pose.limbs[1].foot.held;
-  const targetOpening=walking||!planted?0:slab*slab*(3-2*slab)*highStep*stagger;
+  const level=1-Math.min(1,split/.18);
+  const fourSupports=planted && pose.limbs[2].hand.held && pose.limbs[3].hand.held;
+  // Let a moving limb settle before asking the body to adopt the rest stance.
+  this.supportedFor=fourSupports?Math.min(.7,(this.supportedFor??0)+delta):0;
+  const settle=Math.max(0,(this.supportedFor-.35)/.35);
+  const frog=walking?0:level*slab*slab*(3-2*slab)*settle;
+  const targetOpening=Math.max(walking||!planted?0:slab*slab*(3-2*slab)*highStep*stagger,.65*frog);
   this.pelvisOpening ??= 0;
   const follow=1-Math.exp(-8*delta);
   this.pelvisOpening += (targetOpening-this.pelvisOpening)*follow;
@@ -328,8 +338,7 @@ export class Skin {
    // hold while its ankle is tens of centimeters away and the knee is locked.
    const ankleError=()=>leg&&!walking?this.worldOf(bot).p.distanceTo(end):0;
    const footCost=()=>Math.max(0,ankleError()-.055)**2;
-   const height = Math.min(Math.max((end.clone().sub(start).dot(up) * 100 + 20) / 40, 0), 1);
-			const hint = leg ? start.clone().add(knee(side, up, back, sideOf(limb), height).multiplyScalar(1))
+			const hint = leg ? start.clone().add(unit(part.pole))
 				: start.clone().add(three(part.bend.sub(pose.roots[limb])));
 			let ik = solve(start, end, hint, one, two);
 			const out = unit(leg ? pose.back : part.hand.out);
@@ -337,6 +346,11 @@ export class Skin {
 			// rather than choosing an unconstrained bend and stretching to it.
 			const axis=ik.end.clone().sub(start).normalize(),center=start.clone().addScaledVector(axis,ik.bend.clone().sub(start).dot(axis));
 			const pole=ik.bend.clone().sub(center),around=axis.clone().cross(pole);
+   const outward=side.clone().multiplyScalar(sideOf(limb));
+   // The pole already accounts for leg length and how high the shoe is.
+   // Use its lateral component as the knee clearance for a planted leg.
+   const spread=.025+frog*Math.min(.145,Math.max(0,ik.bend.clone().sub(start).dot(outward)-.025));
+   const kneeCost=middle=>leg&&!walking?Math.max(0,spread-middle.clone().sub(start).dot(outward))**2:0;
 			const wallPoint=leg?three(part.foot.toe).addScaledVector(back,-.03):three(part.hand.palm).addScaledVector(out,-.04);
 			const trySwivel=angle=>{
 				for(const b of [top,midB,bot])this.wants.delete(b);this.world.clear();
@@ -361,7 +375,7 @@ export class Skin {
     if(leg){const parent=this.worldOf(bot.parent);this.wants.set(bot,{p:this.worldOf(bot).p.clone(),q:this.motion.limit(bot,shoeRotation,parent.q,false)});this.world.clear();}
     const sole=leg?this.bone[(limb===0?'Right':'Left')+'SoleContact']:null;
     const actual=this.worldOf(sole||bot).p,targetPoint=sole?three(part.foot.toe):end,depth=middle.clone().sub(wallPoint).dot(out);
-				const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
+				const kneePenalty=kneeCost(middle)*60000;
 				const cost=kneePenalty+actual.distanceToSquared(targetPoint)*(leg?100000:300)+45000*opening*footCost()+(walking?0:Math.max(0,(leg?.10:.07)-depth)**2*10000)+.05*angle**2;
 				return {bend,cost};
 			};
@@ -407,7 +421,7 @@ export class Skin {
      }
      let continuity=0;
      for(const b of joints){const previous=this.motion.previous.get(b);if(previous){const local=this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q);continuity+=10*previous.angleTo(local)**2;}}
-     const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
+     const kneePenalty=kneeCost(middle)*60000;
      // A gentle facing preference allows edging without locking the leg.
      return kneePenalty+continuity+45000*opening*footCost()+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+20*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
@@ -475,8 +489,7 @@ export class Skin {
     const contactCost=()=>{
      const middle=this.worldOf(midB).p;
      const depth=middle.clone().sub(wallPoint).dot(out);
-     const inward=leg?Math.max(0,-.025-middle.clone().sub(start).dot(side)*sideOf(limb)):0;
-     return this.worldOf(landmark).p.distanceToSquared(wantedContact)+.45*opening*footCost()+100*Math.max(0,.06-depth)**2+100*inward**2;
+     return this.worldOf(landmark).p.distanceToSquared(wantedContact)+.45*opening*footCost()+100*Math.max(0,.06-depth)**2+(frog>.01?.6*kneeCost(middle):100*Math.max(0,-.025-middle.clone().sub(start).dot(outward))**2);
     };
     const joints=[top,midB,bot];
     let locals=joints.map(b=>this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q));

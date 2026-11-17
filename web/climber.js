@@ -398,7 +398,9 @@ export class Climber {
 				part = { end: ankle, foot: { toe: contact, heel, up: panel.up, held } };
 			}
 			// elbows drop down and out; a foot on the side the body is turning toward drops its knee
-			const lean = arm ? [0.6, side * 0.35, -0.8] : [0.35, side * (0.3 + 0.9 * this.away), 1];
+			// A supported stance opens the knees to either side of the body.
+			// Keep the shoe planted as the hip folds, and let unweighted legs hang.
+			const lean = arm ? [0.6, side * 0.35, -0.8] : [-0.28, side * 1.1, held ? 0.4 : 0.85];
 			let pole = frame.out.mul(lean[0]).add(frame.right.mul(lean[1])).add(frame.up.mul(lean[2]));
 			if (!arm && held) pole = pole.lerp(frame.up.mul(-1).add(frame.right.mul(-side * 0.7)).add(frame.out.mul(0.3)), clamp(this.turn * side, 0, 1) * 0.85);
 			const free = hanging(limb);
