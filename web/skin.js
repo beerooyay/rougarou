@@ -95,7 +95,7 @@ export class Skin {
  reset() {
   this.motion.reset();this.chainTargets.clear();this.swivels=[0,0,0,0];
   this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.garments.reset();
-  this.rawPelvis=null;this.lastPelvis=null;
+  this.rawPelvis=null;this.lastPelvis=null;this.pelvisOpening=0;
  }
 
 	// where a bone currently lands: a wanted world transform if set, else forward kinematics through posed parents
@@ -253,7 +253,7 @@ export class Skin {
 	pose(pose,delta=1/60,walking=false) {
   if(delta<=0 && this.motion.previous.size && this.wasWalking===walking)return;
   this.motion.step=delta;
-		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.wasWalking=walking;}
+		if(this.wasWalking!==walking){this.motion.reset();this.chainTargets.clear();this.garments.reset();this.bodyOffset.set(0,0,0);this.bodyRotation.set(0,0,0);this.pelvisOpening=0;this.wasWalking=walking;}
 		this.world.clear(); this.wants.clear();
 		const pelvis = three(pose.roots[0].add(pose.roots[1]).mul(0.5));
 		const chest = three(pose.roots[2].add(pose.roots[3]).mul(0.5));
@@ -275,7 +275,24 @@ export class Skin {
 		const hips = this.bone['Hips'], restHips = this.restWorld.get(hips);
 		if(this.lastPelvis&&this.lastPelvis.distanceTo(pelvis)>1){this.motion.reset();this.chainTargets.clear();}
 		this.lastPelvis=pelvis.clone();
-		this.wants.set(hips, { p: pelvis, q: this.motion.limit(hips,turn.clone().multiply(restHips.q),this.base.q) });
+		const wallUp=side.clone().cross(back).normalize();
+  if(wallUp.dot(up)<0)wallUp.negate();
+  // On slab, decouple the pelvis from the torso's wallward lean so
+  // the thigh can flex on a high step. Fade out before the overhang,
+  // where the pelvis needs to follow the wall and shoulder line.
+  const slab=Math.min(1,Math.max(0,pose.back.z/.2));
+  const ankles=[0,1].map(limb=>this.limbTarget(pose,limb,back,pelvis,walking).end.y);
+  const split=Math.abs(ankles[0]-ankles[1]);
+  const highStep=Math.min(1,Math.max(0,(Math.max(...ankles)-pelvis.y+.33)/.12));
+  const stagger=Math.min(1,Math.max(0,(split-.18)/.16));
+  const planted=pose.limbs[0].foot.held && pose.limbs[1].foot.held;
+  const targetOpening=walking||!planted?0:slab*slab*(3-2*slab)*highStep*stagger;
+  this.pelvisOpening ??= 0;
+  const follow=1-Math.exp(-8*delta);
+  this.pelvisOpening += (targetOpening-this.pelvisOpening)*follow;
+  const opening=this.pelvisOpening;
+  const hipTurn=opening===0?turn:frame(side,up.clone().lerp(wallUp,.85*opening)).multiply(from.clone().invert());
+  this.wants.set(hips,{p:pelvis,q:this.motion.limit(hips,hipTurn.clone().multiply(restHips.q),this.base.q)});
 		const mix=this.motion.profile.native_mix,front=this.motion.front;
 		const lift=[2,3].map(l=>Math.max(0,Math.min(1,three(pose.limbs[l].end).sub(three(pose.roots[l])).dot(up)/.5)));
 		const extension=(pose.back.z < -.05 ? 16 : 8)*Math.PI/180*Math.min(1,(lift[0]+lift[1])*.55),lateral=12*Math.PI/180*(lift[0]-lift[1]);
@@ -307,6 +324,10 @@ export class Skin {
 			const one = this.restWorld.get(top).p.distanceTo(this.restWorld.get(midB).p);
 			const two = this.restWorld.get(midB).p.distanceTo(this.restWorld.get(bot).p);
    const {end,shoeRotation}=this.limbTarget(pose,limb,back,start,walking);
+   // The sole is a single point. A reversed shoe can put that point on the
+   // hold while its ankle is tens of centimeters away and the knee is locked.
+   const ankleError=()=>leg&&!walking?this.worldOf(bot).p.distanceTo(end):0;
+   const footCost=()=>Math.max(0,ankleError()-.055)**2;
    const height = Math.min(Math.max((end.clone().sub(start).dot(up) * 100 + 20) / 40, 0), 1);
 			const hint = leg ? start.clone().add(knee(side, up, back, sideOf(limb), height).multiplyScalar(1))
 				: start.clone().add(three(part.bend.sub(pose.roots[limb])));
@@ -341,12 +362,12 @@ export class Skin {
     const sole=leg?this.bone[(limb===0?'Right':'Left')+'SoleContact']:null;
     const actual=this.worldOf(sole||bot).p,targetPoint=sole?three(part.foot.toe):end,depth=middle.clone().sub(wallPoint).dot(out);
 				const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
-				const cost=kneePenalty+actual.distanceToSquared(targetPoint)*(leg?100000:300)+(walking?0:Math.max(0,(leg?.10:.07)-depth)**2*10000)+.05*angle**2;
+				const cost=kneePenalty+actual.distanceToSquared(targetPoint)*(leg?100000:300)+45000*opening*footCost()+(walking?0:Math.max(0,(leg?.10:.07)-depth)**2*10000)+.05*angle**2;
 				return {bend,cost};
 			};
 			let chosen=this.swivels[limb],best=trySwivel(chosen);
-			if(!this.motion.previous.size){
-    for(let i=0;i<36;i++){const angle=-Math.PI+2*Math.PI*i/36,candidate=trySwivel(angle);if(candidate.cost<best.cost){chosen=angle;best=candidate;}}
+			if(!this.motion.previous.size || (leg && opening>.25 && best.cost>40)){
+    for(let i=0;i<36;i++){const angle=-Math.PI+2*Math.PI*i/36,candidate=trySwivel(angle);if(candidate.cost<best.cost-(this.motion.previous.size?2:0)){chosen=angle;best=candidate;}}
    }else for(const offset of [-.1,-.05,.05,.1]){const angle=this.swivels[limb]+offset,candidate=trySwivel(angle);if(candidate.cost+.0001<best.cost){chosen=angle;best=candidate;}}
 			const diff=Math.atan2(Math.sin(chosen-this.swivels[limb]),Math.cos(chosen-this.swivels[limb]));
 			if(this.motion.previous.size && !leg && !part.hand.held)chosen=this.swivels[limb]+Math.max(-6*delta,Math.min(6*delta,diff));
@@ -388,31 +409,54 @@ export class Skin {
      for(const b of joints){const previous=this.motion.previous.get(b);if(previous){const local=this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q);continuity+=10*previous.angleTo(local)**2;}}
      const kneePenalty=leg&&!walking?Math.max(0,.025-middle.clone().sub(start).dot(side)*sideOf(limb))**2*60000:0;
      // A gentle facing preference allows edging without locking the leg.
-     return kneePenalty+continuity+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+20*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
+     return kneePenalty+continuity+45000*opening*footCost()+this.worldOf(landmark).p.distanceToSquared(wantedContact)*(leg?100000:10000)+(walking?0:Math.max(0,.06-clear)**2*10000)+20*this.worldOf(bot).q.angleTo(desiredBot)**2+palmPenalty;
     };
     let cost=evaluate(locals),converged=false;
-    if(joints.every(b=>this.motion.previous.has(b))){
-     const previous=joints.map(b=>this.motion.previous.get(b).clone()),score=evaluate(previous);
+    // one round of trying each joint a little either way about each axis, in shrinking steps, keeping what scores better
+    const descend=(from,sizes)=>{
+     let values=from,score=evaluate(values);
+     for(const degrees of sizes)for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
+      let chosen=values;
+      for(const sign of [-1,1]){
+       const candidate=values.map(q=>q.clone());candidate[j].multiply(new THREE.Quaternion().setFromAxisAngle(axis,sign*degrees*Math.PI/180));
+       const value=evaluate(candidate);if(value<score){score=value;chosen=candidate;}
+      }
+      values=chosen;evaluate(values);
+     }
+     return {values,score,miss:this.worldOf(landmark).p.distanceTo(wantedContact),ankle:ankleError()};
+    };
+    const shown=joints.every(b=>this.motion.previous.has(b))?joints.map(b=>this.motion.previous.get(b).clone()):null;
+    if(shown){
+     const score=evaluate(shown);
      let safe=true;
      if(!leg && part.hand.clearance)for(const digit of ['Thumb','Index','Middle','Pinky']){
       const p=this.worldOf(this.bone[(limb===2?'Right':'Left')+'Hand'+digit+'1']).p;
       if(part.hand.clearance(new Vec3(p.z*100,-p.x*100,p.y*100))<1.4)safe=false;
      }
-     converged=safe && this.worldOf(landmark).p.distanceTo(wantedContact)<.008 && this.worldOf(bot).q.angleTo(desiredBot)<.9;
-     if(converged || score<=cost){locals=previous;cost=score;}evaluate(locals);
+     converged=(opening<.25 || ankleError()<.08) && safe && this.worldOf(landmark).p.distanceTo(wantedContact)<.008 && this.worldOf(bot).q.angleTo(desiredBot)<.9;
+     if(converged || score<=cost){locals=shown;cost=score;}evaluate(locals);
     }
-
+    // The pose on screen comes first. A solution found by small turns from where the limb already is keeps the joints
+    // where they are; one found from a fresh start can put the same foot on the same hold with the hip and knee turned
+    // a different way, and the limb then swings wide of its hold getting there. Only if the nearby search cannot make
+    // the contact is the fresh, wide one used.
+    let near=null;
+    if(!converged && shown){
+     evaluate(shown);const before=this.worldOf(landmark).p.distanceTo(wantedContact);
+     near=descend(shown,[8,4,2,1,.5]);
+     // near enough already, or closing the gap by a good fraction each frame: stay with the pose on screen and keep
+     // turning it. a far-off contact is then recovered over a few frames along a nearby path, never by a new arrangement
+     if((opening<.25 || near.ankle<.08) && (near.miss<.012 || near.miss<before*.75)){locals=near.values;cost=near.score;converged=true;evaluate(locals);}
+    }
     if(!converged && joints.every(b=>this.chainTargets.has(b))){
      const warm=joints.map(b=>this.chainTargets.get(b).clone()),score=evaluate(warm);
      if(score<cost){locals=warm;cost=score;}evaluate(locals);
     }
-    if(!converged)for(const degrees of [30,20,12,8,4,2,1,4,2,1,.5])for(let j=0;j<3;j++)for(const axis of [new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]){
-     let chosen=locals;
-     for(const sign of [-1,1]){
-      const candidate=locals.map(q=>q.clone());candidate[j].multiply(new THREE.Quaternion().setFromAxisAngle(axis,sign*degrees*Math.PI/180));
-      const score=evaluate(candidate);if(score<cost){cost=score;chosen=candidate;}
-     }
-     locals=chosen;evaluate(locals);
+    if(!converged){
+     const wide=descend(locals,[30,20,12,8,4,2,1,4,2,1,.5]);
+     locals=wide.values;cost=wide.score;
+     if(near && near.score<=cost){locals=near.values;cost=near.score;}
+     evaluate(locals);
     }
 
    }
@@ -432,7 +476,7 @@ export class Skin {
      const middle=this.worldOf(midB).p;
      const depth=middle.clone().sub(wallPoint).dot(out);
      const inward=leg?Math.max(0,-.025-middle.clone().sub(start).dot(side)*sideOf(limb)):0;
-     return this.worldOf(landmark).p.distanceToSquared(wantedContact)+100*Math.max(0,.06-depth)**2+100*inward**2;
+     return this.worldOf(landmark).p.distanceToSquared(wantedContact)+.45*opening*footCost()+100*Math.max(0,.06-depth)**2+100*inward**2;
     };
     const joints=[top,midB,bot];
     let locals=joints.map(b=>this.worldOf(b.parent).q.clone().invert().multiply(this.worldOf(b).q));

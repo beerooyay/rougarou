@@ -104,12 +104,22 @@ export class HumanMotion {
     // the step if that projection would exceed the motion budget.
     if(this.bounds.has(b)){
      const neutral=this.neutral.get(b),frame=this.frames.get(b),bounds=this.bounds.get(b);
-     for(let i=0;i<16;i++){
-      const rel=neutral.clone().invert().multiply(result);
-      const legal=neutral.clone().multiply(clampRel(rel,frame,bounds).q).normalize();
-      if(previous.angleTo(legal)<=cap+1e-6){result=legal;break;}
-      alpha*=.5;result=previous.clone().slerp(target,alpha);
-      if(i===15)result=previous.clone();
+     const project=q=>neutral.clone().multiply(clampRel(neutral.clone().invert().multiply(q),frame,bounds).q).normalize();
+     // The straight turn toward the target can leave the joint's range part way, and its nearest legal pose may then
+     // be further off than one frame allows. Halving the step until it fits ends in no step at all, and the joint
+     // froze short of a pose it could reach, with its hand or foot hanging off the hold. Instead the step is taken
+     // toward the legal pose and projected again, which walks the joint round the edge of its range.
+     let legal=project(result),done=false;
+     for(let i=0;i<8;i++){
+      const off=previous.angleTo(legal);
+      if(off<=cap+1e-6){done=true;break;}
+      legal=project(previous.clone().slerp(legal,cap/off));
+     }
+     if(done)result=legal;
+     else{
+      // the last pose is itself outside the range (a limit moved under it): head for the nearest legal pose
+      const home=project(previous),away=previous.angleTo(home);
+      result=away>1e-8?previous.clone().slerp(home,Math.min(1,cap/away)):previous.clone();
      }
     }
    }

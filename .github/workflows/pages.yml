@@ -29,6 +29,7 @@ jobs:
       - run: node web/check.mjs
       - run: npm ci --prefix tests/web-rig
       - run: npm test --prefix tests/web-rig
+      - run: node --import ./tests/web-rig/register.mjs tests/web-rig/high-step.mjs
       - run: npm run audit --prefix tests/web-rig
       - run: python3 tools/stage-web.py "${{ runner.temp }}/rougarou-pages" "${{ github.sha }}"
       - uses: actions/configure-pages@v5
